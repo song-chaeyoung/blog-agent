@@ -9,4 +9,15 @@ export default defineSchema({
     imageUrl: v.optional(v.string()),
     provider: v.optional(v.string()),
   }).index("by_token", ["tokenIdentifier"]),
+
+  posts: defineTable({
+    userId: v.id("users"),
+    content: v.string(),
+    imageUrl: v.optional(v.string()),
+    embedding: v.optional(v.array(v.float64())),
+  }).vectorIndex("by_embedding", {
+    vectorField: "embedding",
+    dimensions: 1536,
+    filterFields: ["userId"],
+  }),
 });
