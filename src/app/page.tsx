@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
+import ImageUploader from "@/components/image-uploader";
 
 const DELIMITER = "---";
 
@@ -19,10 +20,33 @@ export default function Home() {
   const posts = useQuery(api.posts.listMyPosts);
   const bulkCreate = useMutation(api.posts.bulkCreatePosts);
 
+  const generateBlog = useAction(api.generate.createBlogFromImage);
+
   const [raw, setRaw] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generatedContent, setGeneratedContent] = useState<string | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   const parsed = useMemo(() => parsePosts(raw), [raw]);
+
+  const handleGenerate = async () => {
+    if (!uploadedImageUrl) return;
+
+    setGenerating(true);
+    setGeneratedContent(null);
+    setGenerateError(null);
+
+    try {
+      const content = await generateBlog({ imageUrl: uploadedImageUrl });
+      setGeneratedContent(content);
+    } catch {
+      setGenerateError("글 생성 중 오류가 발생했습니다. 다시 시도해 주세요.");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const handleBulkSave = async () => {
     if (parsed.length === 0) return;
@@ -116,6 +140,48 @@ export default function Home() {
                       {text.length > 100 ? text.slice(0, 100) + "..." : text}
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* 이미지 업로드 */}
+            <div className="mb-10 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-1">
+                이미지 업로드
+              </h2>
+              <p className="text-xs text-zinc-400 mb-4">
+                글 생성에 사용할 이미지를 업로드하세요. 이미지를 기반으로 AI가 블로그 글을 작성합니다.
+              </p>
+              <ImageUploader onUploadComplete={(url) => setUploadedImageUrl(url)} />
+              {uploadedImageUrl && (
+                <div className="mt-4 flex items-center gap-3">
+                  <button
+                    onClick={handleGenerate}
+                    disabled={generating}
+                    className="rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                  >
+                    {generating ? "글 생성 중..." : "이 이미지로 글 생성"}
+                  </button>
+                  {generating && (
+                    <span className="text-xs text-zinc-400">
+                      Vision → Embedding → RAG → 생성 중...
+                    </span>
+                  )}
+                </div>
+              )}
+              {generateError && (
+                <p className="mt-3 text-sm text-red-600 dark:text-red-400">
+                  {generateError}
+                </p>
+              )}
+              {generatedContent && (
+                <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950">
+                  <p className="mb-2 text-xs font-semibold text-green-700 dark:text-green-400">
+                    생성된 글
+                  </p>
+                  <p className="whitespace-pre-wrap text-sm text-zinc-800 dark:text-zinc-200">
+                    {generatedContent}
+                  </p>
                 </div>
               )}
             </div>

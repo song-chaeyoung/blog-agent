@@ -1,0 +1,106 @@
+import { v } from "convex/values";
+import { action } from "./_generated/server";
+import { internal } from "./_generated/api";
+import OpenAI from "openai";
+
+const openai = () =>
+  new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+/**
+ * 이미지 → Vision 묘사 → Embedding → RAG → 블로그 글 생성
+ */
+export const createBlogFromImage = action({
+  args: { imageUrl: v.string() },
+  handler: async (ctx, args): Promise<string> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("인증되지 않은 사용자입니다.");
+
+    const userId = await ctx.runQuery(internal.generateHelpers.getUserId, {
+      tokenIdentifier: identity.tokenIdentifier,
+    });
+
+    const ai = openai();
+
+    // 1. Vision: 이미지 → 상황 묘사 텍스트
+    const visionRes = await ai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: args.imageUrl },
+            },
+            {
+              type: "text",
+              text: "이 이미지에 담긴 상황, 분위기, 감정을 자세히 묘사해 주세요. 블로그 글을 쓰기 위한 소재로 사용됩니다. 한국어로 답변해 주세요.",
+            },
+          ],
+        },
+      ],
+      max_tokens: 500,
+    });
+
+    const description = visionRes.choices[0].message.content ?? "";
+
+    // 2. Embedding: 묘사 텍스트 → 벡터
+    const embeddingRes = await ai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: description,
+    });
+
+    const embedding = embeddingRes.data[0].embedding;
+
+    // 3. Vector Search: 유사한 내 글 3개 추출
+    const searchResults = await ctx.vectorSearch("posts", "by_embedding", {
+      vector: embedding,
+      limit: 3,
+      filter: (q) => q.eq("userId", userId),
+    });
+
+    const similarPosts = await ctx.runQuery(
+      internal.generateHelpers.getPostsByIds,
+      { ids: searchResults.map((r) => r._id) }
+    );
+
+    // 4. 블로그 글 생성
+    const referenceTexts = similarPosts
+      .map((p, i) => `[참고 글 ${i + 1}]\n${p.content}`)
+      .join("\n\n");
+
+    const generateRes = await ai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `당신은 사용자의 문체를 학습한 블로그 글 작성 AI입니다.
+아래 참고 글들의 문체, 어조, 표현 방식을 분석하여 동일한 스타일로 새 글을 작성하세요.
+
+규칙:
+- 마크다운 문법을 사용하지 마세요 (**, ##, - 등 금지)
+- 일반 줄글 형식으로 작성하세요
+- 참고 글의 문체와 최대한 비슷하게 작성하세요
+- 자연스러운 블로그 글처럼 작성하세요`,
+        },
+        {
+          role: "user",
+          content: `[이미지 묘사]\n${description}\n\n${referenceTexts}\n\n위 이미지 묘사를 바탕으로, 참고 글들의 문체를 살려 블로그 글을 작성해 주세요.`,
+        },
+      ],
+      max_tokens: 1000,
+    });
+
+    const generatedContent = generateRes.choices[0].message.content ?? "";
+
+    // 5. 생성된 글 저장
+    await ctx.runMutation(internal.generateHelpers.saveGeneratedPost, {
+      userId,
+      content: generatedContent,
+      imageUrl: args.imageUrl,
+      embedding,
+    });
+
+    return generatedContent;
+  },
+});
