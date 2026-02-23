@@ -121,6 +121,44 @@ export const updatePostEmbedding = internalMutation({
 });
 
 /**
+ * embedding이 없는 글들의 embedding을 재생성합니다.
+ */
+export const retryMissingEmbeddings = mutation({
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("인증되지 않은 사용자입니다.");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique();
+
+    if (!user) throw new Error("사용자를 찾을 수 없습니다.");
+
+    const posts = await ctx.db
+      .query("posts")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("userId"), user._id),
+          q.eq(q.field("embedding"), undefined)
+        )
+      )
+      .collect();
+
+    for (const post of posts) {
+      await ctx.scheduler.runAfter(0, internal.posts.generateEmbedding, {
+        postId: post._id,
+        content: post.content,
+      });
+    }
+
+    return posts.length;
+  },
+});
+
+/**
  * 현재 사용자의 글 목록을 최신순으로 조회합니다.
  */
 export const listMyPosts = query({

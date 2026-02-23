@@ -19,6 +19,7 @@ export default function Home() {
   const { isSignedIn, isLoaded } = useUser();
   const posts = useQuery(api.posts.listMyPosts);
   const bulkCreate = useMutation(api.posts.bulkCreatePosts);
+  const retryEmbeddings = useMutation(api.posts.retryMissingEmbeddings);
 
   const generateBlog = useAction(api.generate.createBlogFromImage);
 
@@ -193,9 +194,19 @@ export default function Home() {
                   학습된 글 목록
                 </h2>
                 {totalPosts > 0 && (
-                  <span className="text-xs text-zinc-400">
-                    embedding {embeddingDone}/{totalPosts}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-zinc-400">
+                      embedding {embeddingDone}/{totalPosts}
+                    </span>
+                    {embeddingDone < totalPosts && (
+                      <button
+                        onClick={() => retryEmbeddings()}
+                        className="text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                      >
+                        재시도
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               {posts === undefined ? (
