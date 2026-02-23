@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import OpenAI from "openai";
 
 const openai = () =>
@@ -11,7 +12,7 @@ const openai = () =>
  */
 export const createBlogFromImage = action({
   args: { imageUrl: v.string() },
-  handler: async (ctx, args): Promise<string> => {
+  handler: async (ctx, args): Promise<{ content: string; postId: Id<"posts"> }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("인증되지 않은 사용자입니다.");
 
@@ -94,13 +95,16 @@ export const createBlogFromImage = action({
     const generatedContent = generateRes.choices[0].message.content ?? "";
 
     // 5. 생성된 글 저장
-    await ctx.runMutation(internal.generateHelpers.saveGeneratedPost, {
-      userId,
-      content: generatedContent,
-      imageUrl: args.imageUrl,
-      embedding,
-    });
+    const postId = await ctx.runMutation(
+      internal.generateHelpers.saveGeneratedPost,
+      {
+        userId,
+        content: generatedContent,
+        imageUrl: args.imageUrl,
+        embedding,
+      }
+    );
 
-    return generatedContent;
+    return { content: generatedContent, postId };
   },
 });

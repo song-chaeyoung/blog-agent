@@ -159,6 +159,45 @@ export const retryMissingEmbeddings = mutation({
 });
 
 /**
+ * 글 내용을 수정하고 embedding을 재생성합니다. (본인 글만)
+ */
+export const updatePost = mutation({
+  args: {
+    postId: v.id("posts"),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("인증되지 않은 사용자입니다.");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique();
+
+    if (!user) throw new Error("사용자를 찾을 수 없습니다.");
+
+    const post = await ctx.db.get(args.postId);
+    if (!post || post.userId !== user._id) {
+      throw new Error("수정 권한이 없습니다.");
+    }
+
+    await ctx.db.patch(args.postId, {
+      content: args.content,
+      embedding: undefined,
+    });
+
+    // embedding 재생성 스케줄링
+    await ctx.scheduler.runAfter(0, internal.posts.generateEmbedding, {
+      postId: args.postId,
+      content: args.content,
+    });
+  },
+});
+
+/**
  * 단일 글을 조회합니다. (본인 글만)
  */
 export const getPost = query({
