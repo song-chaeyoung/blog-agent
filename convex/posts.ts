@@ -159,6 +159,58 @@ export const retryMissingEmbeddings = mutation({
 });
 
 /**
+ * 단일 글을 조회합니다. (본인 글만)
+ */
+export const getPost = query({
+  args: { postId: v.id("posts") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique();
+
+    if (!user) return null;
+
+    const post = await ctx.db.get(args.postId);
+    if (!post || post.userId !== user._id) return null;
+
+    return post;
+  },
+});
+
+/**
+ * 글을 삭제합니다. (본인 글만)
+ */
+export const deletePost = mutation({
+  args: { postId: v.id("posts") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("인증되지 않은 사용자입니다.");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique();
+
+    if (!user) throw new Error("사용자를 찾을 수 없습니다.");
+
+    const post = await ctx.db.get(args.postId);
+    if (!post || post.userId !== user._id) {
+      throw new Error("삭제 권한이 없습니다.");
+    }
+
+    await ctx.db.delete(args.postId);
+  },
+});
+
+/**
  * 현재 사용자의 글 목록을 최신순으로 조회합니다.
  */
 export const listMyPosts = query({
