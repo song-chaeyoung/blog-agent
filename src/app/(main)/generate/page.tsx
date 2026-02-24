@@ -4,11 +4,9 @@ import { useReducer, useCallback } from "react";
 import { useAction } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
-import ImageUploader from "../../../components/image-uploader";
-import {
-  useResultEditor,
-  type ResultData,
-} from "../../../hooks/useResultEditor";
+import ImageUploader from "@/components/image-uploader";
+import type { ResultData } from "@/types/post";
+import { useResultEditor } from "@/hooks/useResultEditor";
 
 // ─── State & Action 타입 ────────────────────────────────────────────────────
 

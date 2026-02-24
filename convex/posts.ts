@@ -20,7 +20,7 @@ export const createPost = mutation({
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) =>
-        q.eq("tokenIdentifier", identity.tokenIdentifier)
+        q.eq("tokenIdentifier", identity.tokenIdentifier),
       )
       .unique();
 
@@ -53,7 +53,7 @@ export const bulkCreatePosts = mutation({
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) =>
-        q.eq("tokenIdentifier", identity.tokenIdentifier)
+        q.eq("tokenIdentifier", identity.tokenIdentifier),
       )
       .unique();
 
@@ -131,7 +131,7 @@ export const retryMissingEmbeddings = mutation({
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) =>
-        q.eq("tokenIdentifier", identity.tokenIdentifier)
+        q.eq("tokenIdentifier", identity.tokenIdentifier),
       )
       .unique();
 
@@ -142,8 +142,8 @@ export const retryMissingEmbeddings = mutation({
       .filter((q) =>
         q.and(
           q.eq(q.field("userId"), user._id),
-          q.eq(q.field("embedding"), undefined)
-        )
+          q.eq(q.field("embedding"), undefined),
+        ),
       )
       .collect();
 
@@ -166,7 +166,7 @@ export const updatePost = mutation({
     postId: v.id("posts"),
     content: v.string(),
     imageBlocks: v.optional(
-      v.array(v.object({ url: v.string(), caption: v.string() }))
+      v.array(v.object({ url: v.string(), caption: v.string() })),
     ),
     intro: v.optional(v.string()),
     outro: v.optional(v.string()),
@@ -178,7 +178,7 @@ export const updatePost = mutation({
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) =>
-        q.eq("tokenIdentifier", identity.tokenIdentifier)
+        q.eq("tokenIdentifier", identity.tokenIdentifier),
       )
       .unique();
 
@@ -189,21 +189,13 @@ export const updatePost = mutation({
       throw new Error("수정 권한이 없습니다.");
     }
 
-    const patch: Record<string, unknown> = {
+    await ctx.db.patch(args.postId, {
       content: args.content,
       embedding: undefined,
-    };
-    if (args.imageBlocks !== undefined) {
-      patch.imageBlocks = args.imageBlocks;
-    }
-    if (args.intro !== undefined) {
-      patch.intro = args.intro;
-    }
-    if (args.outro !== undefined) {
-      patch.outro = args.outro;
-    }
-
-    await ctx.db.patch(args.postId, patch);
+      ...(args.imageBlocks !== undefined && { imageBlocks: args.imageBlocks }),
+      ...(args.intro !== undefined && { intro: args.intro }),
+      ...(args.outro !== undefined && { outro: args.outro }),
+    });
 
     // embedding 재생성 스케줄링
     await ctx.scheduler.runAfter(0, internal.posts.generateEmbedding, {
@@ -225,7 +217,7 @@ export const getPost = query({
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) =>
-        q.eq("tokenIdentifier", identity.tokenIdentifier)
+        q.eq("tokenIdentifier", identity.tokenIdentifier),
       )
       .unique();
 
@@ -250,7 +242,7 @@ export const deletePost = mutation({
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) =>
-        q.eq("tokenIdentifier", identity.tokenIdentifier)
+        q.eq("tokenIdentifier", identity.tokenIdentifier),
       )
       .unique();
 
@@ -276,7 +268,7 @@ export const listMyPosts = query({
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) =>
-        q.eq("tokenIdentifier", identity.tokenIdentifier)
+        q.eq("tokenIdentifier", identity.tokenIdentifier),
       )
       .unique();
 

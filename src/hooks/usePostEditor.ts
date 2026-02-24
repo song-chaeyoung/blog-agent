@@ -2,21 +2,8 @@ import { useState, useCallback } from "react";
 import { useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
-import type { ImageBlock } from "./useResultEditor";
-
-// ─── 타입 ──────────────────────────────────────────────────────────────────
-
-export type Post = {
-  _id: Id<"posts">;
-  content: string;
-  imageBlocks?: ImageBlock[];
-  intro?: string;
-  outro?: string;
-  imageUrl?: string;
-  embedding?: number[];
-  _creationTime: number;
-};
+import type { Doc } from "../../convex/_generated/dataModel";
+import type { ImageBlock } from "@/types/post";
 
 type ReviewDraft = {
   kind: "review";
@@ -38,7 +25,7 @@ type Draft = ReviewDraft | PlainDraft;
  * 포스트 상세 페이지의 편집/삭제/복사 상태를 관리하는 훅
  * - draft가 null이면 보기 모드, non-null이면 편집 모드
  */
-export function usePostEditor(post: Post) {
+export function usePostEditor(post: Doc<"posts">) {
   const router = useRouter();
   const updatePost = useMutation(api.posts.updatePost);
   const deletePost = useMutation(api.posts.deletePost);

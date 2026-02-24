@@ -2,17 +2,9 @@ import { useState, useCallback } from "react";
 import { useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
+import type { ImageBlock, ResultData } from "@/types/post";
 
-export type ImageBlock = { url: string; caption: string };
-
-export type ResultData = {
-  content: string;
-  imageBlocks: ImageBlock[];
-  intro: string;
-  outro: string;
-  postId: Id<"posts">;
-};
+export type { ImageBlock, ResultData };
 
 type EditDraft = {
   blocks: ImageBlock[];

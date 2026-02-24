@@ -4,8 +4,8 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
-import type { Id } from "../../../../../convex/_generated/dataModel";
-import { usePostEditor } from "../../../../hooks/usePostEditor";
+import type { Id, Doc } from "../../../../../convex/_generated/dataModel";
+import { usePostEditor } from "@/hooks/usePostEditor";
 
 export default function PostDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -36,11 +36,7 @@ export default function PostDetailPage() {
 
 // ─── 실제 포스트 뷰 (post가 확정된 이후) ──────────────────────────────────────
 
-type ConvexPost = NonNullable<
-  ReturnType<typeof useQuery<typeof api.posts.getPost>>
->;
-
-function PostDetail({ post }: { post: ConvexPost }) {
+function PostDetail({ post }: { post: Doc<"posts"> }) {
   const {
     isReviewPost,
     editing,
@@ -105,7 +101,7 @@ function PostDetail({ post }: { post: ConvexPost }) {
             {/* 이미지 + 캡션 */}
             {(editing && draft?.kind === "review"
               ? draft.blocks
-              : post.imageBlocks!
+              : (post.imageBlocks ?? [])
             ).map((block, i) => (
               <div key={block.url} className="space-y-3">
                 <img
@@ -171,7 +167,7 @@ function PostDetail({ post }: { post: ConvexPost }) {
             </span>
             {isReviewPost ? (
               <span className="text-blue-500">
-                리뷰 글 ({post.imageBlocks!.length}장)
+                리뷰 글 ({post.imageBlocks?.length ?? 0}장)
               </span>
             ) : (
               post.imageUrl && (
