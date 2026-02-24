@@ -53,7 +53,11 @@ export default function PostsPage() {
       </div>
 
       {posts === undefined ? (
-        <p className="text-sm text-zinc-400">로딩 중...</p>
+        <div className="space-y-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <PostSkeleton key={i} />
+          ))}
+        </div>
       ) : posts.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-sm text-zinc-400 mb-3">
@@ -139,6 +143,27 @@ export default function PostsPage() {
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+// ─── 스켈레톤 카드 ─────────────────────────────────────────────────────────────
+
+function PostSkeleton() {
+  return (
+    <div className="animate-pulse rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      {/* 본문 텍스트 블록 */}
+      <div className="space-y-2">
+        <div className="h-3.5 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
+        <div className="h-3.5 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
+        <div className="h-3.5 w-4/5 rounded bg-zinc-200 dark:bg-zinc-700" />
+        <div className="h-3.5 w-3/5 rounded bg-zinc-200 dark:bg-zinc-700" />
+      </div>
+      {/* 날짜 / 상태 뱃지 */}
+      <div className="mt-4 flex items-center gap-3">
+        <div className="h-3 w-20 rounded bg-zinc-200 dark:bg-zinc-700" />
+        <div className="h-3 w-24 rounded bg-zinc-200 dark:bg-zinc-700" />
+      </div>
     </div>
   );
 }
