@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer, useCallback } from "react";
+import { useReducer, useCallback, useState } from "react";
 import { useAction } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
@@ -56,6 +56,8 @@ function reducer(state: PageState, action: Action): PageState {
 
 export default function GeneratePage() {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [memo, setMemo] = useState("");
+  const [keywordInput, setKeywordInput] = useState("");
   const createBlogReview = useAction(api.generate.createBlogReview);
 
   const handleImagesChange = useCallback((urls: string[], ready: boolean) => {
@@ -66,7 +68,15 @@ export default function GeneratePage() {
     if (state.step !== "upload" || state.imageUrls.length === 0) return;
     dispatch({ type: "START_GENERATING" });
     try {
-      const result = await createBlogReview({ imageUrls: state.imageUrls });
+      const keywords = keywordInput
+        .split(",")
+        .map((k) => k.trim())
+        .filter((k) => k.length > 0);
+      const result = await createBlogReview({
+        imageUrls: state.imageUrls,
+        memo: memo.trim() || undefined,
+        keywords: keywords.length > 0 ? keywords : undefined,
+      });
       dispatch({ type: "SET_RESULT", result });
     } catch {
       dispatch({ type: "RESET" });
@@ -86,6 +96,22 @@ export default function GeneratePage() {
           20장)
         </p>
         <ImageUploader onImagesChange={handleImagesChange} maxImages={20} />
+        <textarea
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+          placeholder="한 줄 메모를 추가해주세요. 더욱 실감나는 블로그 글이 작성됩니다.
+          예: 친구랑 갔는데 웨이팅 있었음. 시즌 메뉴 맛있었고"
+          rows={2}
+          className="w-full resize-none rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 placeholder-zinc-400 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder-zinc-500 dark:focus:border-zinc-500"
+        />
+        <input
+          type="text"
+          value={keywordInput}
+          onChange={(e) => setKeywordInput(e.target.value)}
+          placeholder="SEO 키워드 (쉼표로 구분)
+          예: 성수 카페, 성수동 맛집, 서울 카페"
+          className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 placeholder-zinc-400 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder-zinc-500 dark:focus:border-zinc-500"
+        />
         <button
           onClick={handleGenerate}
           disabled={!state.allReady || state.imageUrls.length === 0}

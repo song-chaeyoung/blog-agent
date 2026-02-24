@@ -125,7 +125,7 @@ export const createBlogFromImage = action({
  * intro + 이미지별 캡션 + outro 구조
  */
 export const createBlogReview = action({
-  args: { imageUrls: v.array(v.string()) },
+  args: { imageUrls: v.array(v.string()), memo: v.optional(v.string()), keywords: v.optional(v.array(v.string())) },
   handler: async (
     ctx,
     args,
@@ -261,7 +261,7 @@ export const createBlogReview = action({
         },
         {
           role: "user",
-          content: `${imageDescriptions}\n\n${referenceTexts}\n\n위 ${successResults.length}개 이미지 묘사를 바탕으로, 참고 글들의 문체를 살려 블로그 리뷰 글을 작성해 주세요. 반드시 JSON 형식으로 응답하세요.`,
+          content: `${args.memo ? `[내 메모 - 이 내용을 글에 반드시 반영하세요]\n${args.memo}\n\n` : ""}${args.keywords && args.keywords.length > 0 ? `[SEO 키워드 - 글 전체에 자연스럽게 총 5~6회 녹여서 사용하세요]\n${args.keywords.join(", ")}\n\n` : ""}${imageDescriptions}\n\n${referenceTexts}\n\n위 ${successResults.length}개 이미지 묘사를 바탕으로, 참고 글들의 문체를 살려 블로그 리뷰 글을 작성해 주세요. 반드시 JSON 형식으로 응답하세요.`,
         },
       ],
       max_tokens: 2000,
