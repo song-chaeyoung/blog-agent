@@ -1,128 +1,82 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useAction, useMutation } from "convex/react";
+import { useReducer, useCallback } from "react";
+import { useAction } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
 import ImageUploader from "../../../components/image-uploader";
+import {
+  useResultEditor,
+  type ResultData,
+} from "../../../hooks/useResultEditor";
 
-type ImageBlock = { url: string; caption: string };
+// ─── State & Action 타입 ────────────────────────────────────────────────────
 
-type State =
-  | { step: "upload" }
+type PageState =
+  | { step: "upload"; imageUrls: string[]; allReady: boolean }
   | { step: "generating"; imageCount: number }
-  | {
-      step: "result";
-      content: string;
-      imageBlocks: ImageBlock[];
-      intro: string;
-      outro: string;
-      postId: Id<"posts">;
-    };
+  | { step: "result"; result: ResultData };
+
+type Action =
+  | { type: "SET_IMAGES"; imageUrls: string[]; allReady: boolean }
+  | { type: "START_GENERATING" }
+  | { type: "SET_RESULT"; result: ResultData }
+  | { type: "RESET" };
+
+const initialState: PageState = {
+  step: "upload",
+  imageUrls: [],
+  allReady: false,
+};
+
+function reducer(state: PageState, action: Action): PageState {
+  switch (action.type) {
+    case "SET_IMAGES":
+      if (state.step !== "upload") return state;
+      return {
+        ...state,
+        imageUrls: action.imageUrls,
+        allReady: action.allReady,
+      };
+
+    case "START_GENERATING":
+      if (state.step !== "upload") return state;
+      return { step: "generating", imageCount: state.imageUrls.length };
+
+    case "SET_RESULT":
+      return { step: "result", result: action.result };
+
+    case "RESET":
+      return initialState;
+
+    default:
+      return state;
+  }
+}
+
+// ─── 메인 페이지 ─────────────────────────────────────────────────────────────
 
 export default function GeneratePage() {
-  const router = useRouter();
+  const [state, dispatch] = useReducer(reducer, initialState);
   const createBlogReview = useAction(api.generate.createBlogReview);
-  const updatePost = useMutation(api.posts.updatePost);
 
-  const [state, setState] = useState<State>({ step: "upload" });
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
-  const [allReady, setAllReady] = useState(false);
-
-  // 결과 편집 상태
-  const [editMode, setEditMode] = useState(false);
-  const [editedBlocks, setEditedBlocks] = useState<ImageBlock[]>([]);
-  const [editedIntro, setEditedIntro] = useState("");
-  const [editedOutro, setEditedOutro] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  const handleImagesChange = useCallback(
-    (urls: string[], ready: boolean) => {
-      setImageUrls(urls);
-      setAllReady(ready);
-    },
-    []
-  );
+  const handleImagesChange = useCallback((urls: string[], ready: boolean) => {
+    dispatch({ type: "SET_IMAGES", imageUrls: urls, allReady: ready });
+  }, []);
 
   const handleGenerate = async () => {
-    if (imageUrls.length === 0) return;
-    setState({ step: "generating", imageCount: imageUrls.length });
+    if (state.step !== "upload" || state.imageUrls.length === 0) return;
+    dispatch({ type: "START_GENERATING" });
     try {
-      const result = await createBlogReview({ imageUrls });
-      setState({
-        step: "result",
-        content: result.content,
-        imageBlocks: result.imageBlocks,
-        intro: result.intro,
-        outro: result.outro,
-        postId: result.postId,
-      });
-      setEditedBlocks(result.imageBlocks);
-      setEditedIntro(result.intro);
-      setEditedOutro(result.outro);
+      const result = await createBlogReview({ imageUrls: state.imageUrls });
+      dispatch({ type: "SET_RESULT", result });
     } catch {
-      setState({ step: "upload" });
+      dispatch({ type: "RESET" });
       alert("글 생성에 실패했습니다. 다시 시도해 주세요.");
     }
   };
 
-  const handleSave = async () => {
-    if (state.step !== "result") return;
-    setSaving(true);
-    try {
-      const parts: string[] = [];
-      if (editedIntro) parts.push(editedIntro);
-      editedBlocks.forEach((b) => { if (b.caption) parts.push(b.caption); });
-      if (editedOutro) parts.push(editedOutro);
-      await updatePost({
-        postId: state.postId,
-        content: parts.join("\n\n"),
-        imageBlocks: editedBlocks,
-        intro: editedIntro,
-        outro: editedOutro,
-      });
-      router.push(`/posts/${state.postId}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCopy = async () => {
-    if (state.step !== "result") return;
-    const text = editMode
-      ? editedBlocks.map((b) => b.caption).join("\n\n")
-      : state.content;
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleReset = () => {
-    setState({ step: "upload" });
-    setImageUrls([]);
-    setAllReady(false);
-    setEditMode(false);
-    setEditedBlocks([]);
-    setEditedIntro("");
-    setEditedOutro("");
-    setCopied(false);
-  };
-
-  const updateCaption = (index: number, caption: string) => {
-    setEditedBlocks((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], caption };
-      return updated;
-    });
-  };
-
-  const hasChanges =
-    state.step === "result" &&
-    editedBlocks.some((b, i) => b.caption !== state.imageBlocks[i]?.caption);
-
-  // 업로드 단계
+  // ── 업로드 단계
   if (state.step === "upload") {
     return (
       <div className="space-y-4">
@@ -133,24 +87,21 @@ export default function GeneratePage() {
           이미지를 업로드하면 AI가 내 문체로 블로그 리뷰 글을 작성합니다. (최대
           20장)
         </p>
-        <ImageUploader
-          onImagesChange={handleImagesChange}
-          maxImages={20}
-        />
+        <ImageUploader onImagesChange={handleImagesChange} maxImages={20} />
         <button
           onClick={handleGenerate}
-          disabled={!allReady || imageUrls.length === 0}
+          disabled={!state.allReady || state.imageUrls.length === 0}
           className="w-full rounded-lg bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
-          {imageUrls.length > 0
-            ? `${imageUrls.length}장의 이미지로 글 생성하기`
+          {state.imageUrls.length > 0
+            ? `${state.imageUrls.length}장의 이미지로 글 생성하기`
             : "이미지를 업로드해 주세요"}
         </button>
       </div>
     );
   }
 
-  // 생성 중 단계
+  // ── 생성 중 단계
   if (state.step === "generating") {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20">
@@ -165,8 +116,40 @@ export default function GeneratePage() {
     );
   }
 
-  // 결과 화면
-  const blocks = editMode ? editedBlocks : state.imageBlocks;
+  // ── 결과 단계
+  return (
+    <ResultView
+      result={state.result}
+      onReset={() => dispatch({ type: "RESET" })}
+    />
+  );
+}
+
+// ─── 결과 뷰 컴포넌트 ──────────────────────────────────────────────────────────
+
+function ResultView({
+  result,
+  onReset,
+}: {
+  result: ResultData;
+  onReset: () => void;
+}) {
+  const router = useRouter();
+  const {
+    editMode,
+    display,
+    draft,
+    hasChanges,
+    saving,
+    copied,
+    startEdit,
+    cancelEdit,
+    updateCaption,
+    updateIntro,
+    updateOutro,
+    handleSave,
+    handleCopy,
+  } = useResultEditor(result);
 
   return (
     <div className="space-y-4">
@@ -175,7 +158,7 @@ export default function GeneratePage() {
           생성 결과
         </h2>
         <button
-          onClick={handleReset}
+          onClick={onReset}
           className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
         >
           새로 생성
@@ -185,23 +168,22 @@ export default function GeneratePage() {
       {/* 블로그 리뷰 미리보기 */}
       <div className="space-y-6 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         {/* 도입부 */}
-        {(editMode ? editedIntro : state.intro) && (
-          editMode ? (
+        {display.intro &&
+          (editMode ? (
             <textarea
-              value={editedIntro}
-              onChange={(e) => setEditedIntro(e.target.value)}
+              value={draft.intro}
+              onChange={(e) => updateIntro(e.target.value)}
               className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
               rows={3}
             />
           ) : (
             <p className="whitespace-pre-wrap px-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
-              {state.intro}
+              {display.intro}
             </p>
-          )
-        )}
+          ))}
 
         {/* 이미지 + 캡션 */}
-        {blocks.map((block, i) => (
+        {display.blocks.map((block, i) => (
           <div key={block.url} className="space-y-3">
             <img
               src={block.url}
@@ -211,7 +193,7 @@ export default function GeneratePage() {
             />
             {editMode ? (
               <textarea
-                value={block.caption}
+                value={draft.blocks[i]?.caption ?? ""}
                 onChange={(e) => updateCaption(i, e.target.value)}
                 className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
                 rows={3}
@@ -225,20 +207,19 @@ export default function GeneratePage() {
         ))}
 
         {/* 마무리 */}
-        {(editMode ? editedOutro : state.outro) && (
-          editMode ? (
+        {display.outro &&
+          (editMode ? (
             <textarea
-              value={editedOutro}
-              onChange={(e) => setEditedOutro(e.target.value)}
+              value={draft.outro}
+              onChange={(e) => updateOutro(e.target.value)}
               className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
               rows={3}
             />
           ) : (
             <p className="whitespace-pre-wrap px-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
-              {state.outro}
+              {display.outro}
             </p>
-          )
-        )}
+          ))}
       </div>
 
       {/* 액션 버튼 */}
@@ -253,12 +234,7 @@ export default function GeneratePage() {
               {saving ? "저장 중..." : "수정 저장"}
             </button>
             <button
-              onClick={() => {
-                setEditedBlocks(state.imageBlocks);
-                setEditedIntro(state.intro);
-                setEditedOutro(state.outro);
-                setEditMode(false);
-              }}
+              onClick={cancelEdit}
               className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
             >
               취소
@@ -267,7 +243,7 @@ export default function GeneratePage() {
         ) : (
           <>
             <button
-              onClick={() => setEditMode(true)}
+              onClick={startEdit}
               className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
             >
               수정하기
@@ -279,7 +255,7 @@ export default function GeneratePage() {
               {copied ? "복사 완료!" : "복사하기"}
             </button>
             <button
-              onClick={() => router.push(`/posts/${state.postId}`)}
+              onClick={() => router.push(`/posts/${result.postId}`)}
               className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
             >
               글 보기 →
