@@ -1,96 +1,282 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
-type UploadState =
-  | { status: "idle" }
-  | { status: "uploading" }
-  | { status: "done"; url: string }
-  | { status: "error"; message: string };
+type ImageItem =
+  | { status: "uploading"; localPreview: string }
+  | { status: "done"; localPreview: string; url: string }
+  | { status: "error"; localPreview: string; message: string };
 
 interface ImageUploaderProps {
-  onUploadComplete: (url: string) => void;
+  onImagesChange: (urls: string[], allReady: boolean) => void;
+  maxImages?: number;
 }
 
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB
 
-export default function ImageUploader({ onUploadComplete }: ImageUploaderProps) {
+export default function ImageUploader({
+  onImagesChange,
+  maxImages = 20,
+}: ImageUploaderProps) {
   const generateUploadUrl = useMutation(api.images.generateUploadUrl);
   const getImageUrl = useMutation(api.images.getImageUrl);
-  const [state, setState] = useState<UploadState>({ status: "idle" });
+  const [images, setImages] = useState<ImageItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const upload = useCallback(
-    async (file: File) => {
-      if (!ACCEPTED_TYPES.includes(file.type)) {
-        setState({ status: "error", message: "JPG, PNG, GIF, WebP만 지원됩니다." });
-        return;
-      }
-      if (file.size > MAX_SIZE) {
-        setState({ status: "error", message: "5MB 이하의 이미지만 업로드할 수 있습니다." });
-        return;
-      }
+  // images 변경 시 부모에게 알림 (useEffect로 렌더 사이클 분리)
+  useEffect(() => {
+    const doneItems = images.filter(
+      (img): img is Extract<ImageItem, { status: "done" }> =>
+        img.status === "done"
+    );
+    const allReady =
+      images.length > 0 && images.every((img) => img.status === "done");
+    onImagesChange(
+      doneItems.map((img) => img.url),
+      allReady
+    );
+  }, [images, onImagesChange]);
 
-      setState({ status: "uploading" });
-
+  const uploadFile = useCallback(
+    async (file: File, index: number) => {
       try {
-        // 1. 업로드 URL 생성
         const uploadUrl = await generateUploadUrl();
-
-        // 2. Convex Storage에 파일 업로드
         const res = await fetch(uploadUrl, {
           method: "POST",
           headers: { "Content-Type": file.type },
           body: file,
         });
-
         if (!res.ok) throw new Error("업로드 실패");
 
         const { storageId } = await res.json();
-
-        // 3. storageId → 공개 URL 변환
         const imageUrl = await getImageUrl({ storageId });
 
-        setState({ status: "done", url: imageUrl });
-        onUploadComplete(imageUrl);
+        setImages((prev) => {
+          const updated = [...prev];
+          if (updated[index] && updated[index].status === "uploading") {
+            updated[index] = {
+              status: "done",
+              localPreview: updated[index].localPreview,
+              url: imageUrl,
+            };
+          }
+          return updated;
+        });
       } catch {
-        setState({ status: "error", message: "업로드 중 오류가 발생했습니다." });
+        setImages((prev) => {
+          const updated = [...prev];
+          if (updated[index] && updated[index].status === "uploading") {
+            updated[index] = {
+              status: "error",
+              localPreview: updated[index].localPreview,
+              message: "업로드 실패",
+            };
+          }
+          return updated;
+        });
       }
     },
-    [generateUploadUrl, getImageUrl, onUploadComplete]
+    [generateUploadUrl, getImageUrl]
+  );
+
+  const addFiles = useCallback(
+    (files: FileList | File[]) => {
+      const fileArray = Array.from(files);
+      const remaining = maxImages - images.length;
+      const toAdd = fileArray.slice(0, remaining);
+
+      const validFiles: { file: File; preview: string }[] = [];
+      for (const file of toAdd) {
+        if (!ACCEPTED_TYPES.includes(file.type)) continue;
+        if (file.size > MAX_SIZE) continue;
+        validFiles.push({
+          file,
+          preview: URL.createObjectURL(file),
+        });
+      }
+
+      if (validFiles.length === 0) return;
+
+      const newItems: ImageItem[] = validFiles.map((f) => ({
+        status: "uploading" as const,
+        localPreview: f.preview,
+      }));
+
+      setImages((prev) => {
+        const updated = [...prev, ...newItems];
+
+        validFiles.forEach((f, i) => {
+          uploadFile(f.file, prev.length + i);
+        });
+
+        return updated;
+      });
+    },
+    [images.length, maxImages, uploadFile]
   );
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragOver(false);
-      const file = e.dataTransfer.files[0];
-      if (file) upload(file);
+      if (e.dataTransfer.files.length > 0) {
+        addFiles(e.dataTransfer.files);
+      }
     },
-    [upload]
+    [addFiles]
   );
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) upload(file);
+      if (e.target.files && e.target.files.length > 0) {
+        addFiles(e.target.files);
+      }
+      if (inputRef.current) inputRef.current.value = "";
     },
-    [upload]
+    [addFiles]
   );
 
-  const reset = () => {
-    setState({ status: "idle" });
-    if (inputRef.current) inputRef.current.value = "";
-  };
+  const removeImage = useCallback(
+    (index: number) => {
+      setImages((prev) => {
+        const item = prev[index];
+        if (item) URL.revokeObjectURL(item.localPreview);
+        return prev.filter((_, i) => i !== index);
+      });
+    },
+    []
+  );
+
+  const moveImage = useCallback(
+    (index: number, direction: "up" | "down") => {
+      setImages((prev) => {
+        const targetIndex = direction === "up" ? index - 1 : index + 1;
+        if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+        const updated = [...prev];
+        [updated[index], updated[targetIndex]] = [
+          updated[targetIndex],
+          updated[index],
+        ];
+        return updated;
+      });
+    },
+    []
+  );
 
   return (
-    <div className="w-full">
+    <div className="w-full space-y-3">
+      {/* 썸네일 그리드 */}
+      {images.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+          {images.map((img, i) => (
+            <div
+              key={img.localPreview}
+              className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800"
+            >
+              <img
+                src={img.localPreview}
+                alt={`이미지 ${i + 1}`}
+                className="h-full w-full object-cover"
+              />
+
+              {/* 순번 */}
+              <span className="absolute top-1.5 left-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-[10px] font-bold text-white">
+                {i + 1}
+              </span>
+
+              {/* 업로드 중 스피너 */}
+              {img.status === "uploading" && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                </div>
+              )}
+
+              {/* 에러 오버레이 */}
+              {img.status === "error" && (
+                <div className="absolute inset-0 flex items-center justify-center bg-red-500/40">
+                  <span className="text-xs font-medium text-white">실패</span>
+                </div>
+              )}
+
+              {/* 삭제 버튼 (호버 시 표시) */}
+              <button
+                onClick={() => removeImage(i)}
+                className="absolute top-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+              >
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+
+              {/* 위/아래 이동 버튼 (호버 시 하단에 표시) */}
+              <div className="absolute bottom-1.5 left-1/2 flex -translate-x-1/2 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <button
+                  onClick={() => moveImage(i, "up")}
+                  disabled={i === 0}
+                  className="flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 disabled:opacity-30"
+                >
+                  <svg
+                    className="h-3 w-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 15l7-7 7 7"
+                    />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => moveImage(i, "down")}
+                  disabled={i === images.length - 1}
+                  className="flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 disabled:opacity-30"
+                >
+                  <svg
+                    className="h-3 w-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 이미지 수 카운터 */}
+      {images.length > 0 && (
+        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+          {images.length} / {maxImages} 장
+        </p>
+      )}
+
       {/* 드롭존 */}
-      {state.status !== "done" && (
+      {images.length < maxImages && (
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -99,77 +285,31 @@ export default function ImageUploader({ onUploadComplete }: ImageUploaderProps) 
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors ${
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors ${
             dragOver
               ? "border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950"
               : "border-zinc-300 bg-zinc-50 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:border-zinc-500"
           }`}
         >
-          {state.status === "uploading" ? (
-            <div className="flex flex-col items-center gap-2">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-600 dark:border-t-zinc-100" />
-              <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                업로드 중...
-              </span>
-            </div>
-          ) : (
-            <>
-              <svg
-                className="mb-2 h-8 w-8 text-zinc-400 dark:text-zinc-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
-                />
-              </svg>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                이미지를 드래그하거나 클릭하여 업로드
-              </p>
-              <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-                JPG, PNG, GIF, WebP (최대 5MB)
-              </p>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* 업로드 완료 미리보기 */}
-      {state.status === "done" && (
-        <div className="relative rounded-lg border border-zinc-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-900">
-          <img
-            src={state.url}
-            alt="업로드된 이미지"
-            className="w-full rounded-md object-cover"
-            style={{ maxHeight: 240 }}
-          />
-          <button
-            onClick={reset}
-            className="absolute top-3 right-3 rounded-full bg-black/50 p-1.5 text-white transition-colors hover:bg-black/70"
+          <svg
+            className="mb-2 h-7 w-7 text-zinc-400 dark:text-zinc-500"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
           >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      )}
-
-      {/* 에러 메시지 */}
-      {state.status === "error" && (
-        <div className="mt-2 flex items-center justify-between rounded-lg bg-red-50 px-4 py-2.5 dark:bg-red-950">
-          <span className="text-sm text-red-600 dark:text-red-400">
-            {state.message}
-          </span>
-          <button
-            onClick={reset}
-            className="text-xs font-medium text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
-          >
-            다시 시도
-          </button>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
+            />
+          </svg>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            이미지를 드래그하거나 클릭하여 업로드
+          </p>
+          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+            JPG, PNG, GIF, WebP (최대 5MB, {maxImages}장까지)
+          </p>
         </div>
       )}
 
@@ -177,6 +317,7 @@ export default function ImageUploader({ onUploadComplete }: ImageUploaderProps) 
         ref={inputRef}
         type="file"
         accept={ACCEPTED_TYPES.join(",")}
+        multiple
         onChange={handleFileChange}
         className="hidden"
       />

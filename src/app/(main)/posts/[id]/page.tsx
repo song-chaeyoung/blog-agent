@@ -7,6 +7,8 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
+type ImageBlock = { url: string; caption: string };
+
 export default function PostDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -19,8 +21,13 @@ export default function PostDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editedContent, setEditedContent] = useState("");
+  const [editedBlocks, setEditedBlocks] = useState<ImageBlock[]>([]);
+  const [editedIntro, setEditedIntro] = useState("");
+  const [editedOutro, setEditedOutro] = useState("");
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const isReviewPost = post?.imageBlocks && post.imageBlocks.length > 0;
 
   const handleDelete = async () => {
     if (!confirm("정말 이 글을 삭제하시겠습니까?")) return;
@@ -37,18 +44,41 @@ export default function PostDetailPage() {
   const handleEditStart = () => {
     if (!post) return;
     setEditedContent(post.content);
+    setEditedBlocks(post.imageBlocks ?? []);
+    setEditedIntro(post.intro ?? "");
+    setEditedOutro(post.outro ?? "");
     setEditing(true);
   };
 
   const handleEditCancel = () => {
     setEditing(false);
     setEditedContent("");
+    setEditedBlocks([]);
+    setEditedIntro("");
+    setEditedOutro("");
   };
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await updatePost({ postId: id as Id<"posts">, content: editedContent });
+      if (isReviewPost) {
+        const parts: string[] = [];
+        if (editedIntro) parts.push(editedIntro);
+        editedBlocks.forEach((b) => { if (b.caption) parts.push(b.caption); });
+        if (editedOutro) parts.push(editedOutro);
+        await updatePost({
+          postId: id as Id<"posts">,
+          content: parts.join("\n\n"),
+          imageBlocks: editedBlocks,
+          intro: editedIntro,
+          outro: editedOutro,
+        });
+      } else {
+        await updatePost({
+          postId: id as Id<"posts">,
+          content: editedContent,
+        });
+      }
       setEditing(false);
     } finally {
       setSaving(false);
@@ -56,11 +86,25 @@ export default function PostDetailPage() {
   };
 
   const handleCopy = async () => {
-    const text = editing ? editedContent : post?.content;
-    if (!text) return;
+    let text: string;
+    if (editing) {
+      text = isReviewPost
+        ? editedBlocks.map((b) => b.caption).join("\n\n")
+        : editedContent;
+    } else {
+      text = post?.content ?? "";
+    }
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const updateCaption = (index: number, caption: string) => {
+    setEditedBlocks((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], caption };
+      return updated;
+    });
   };
 
   if (post === undefined) {
@@ -69,8 +113,8 @@ export default function PostDetailPage() {
 
   if (post === null) {
     return (
-      <div className="text-center py-12">
-        <p className="text-sm text-zinc-400 mb-3">글을 찾을 수 없습니다.</p>
+      <div className="py-12 text-center">
+        <p className="mb-3 text-sm text-zinc-400">글을 찾을 수 없습니다.</p>
         <Link
           href="/posts"
           className="text-sm font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
@@ -106,13 +150,74 @@ export default function PostDetailPage() {
 
       {/* 글 내용 */}
       <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        {editing ? (
+        {isReviewPost ? (
+          // 리뷰 글 레이아웃: intro + 이미지/캡션 + outro
+          <div className="space-y-6">
+            {/* 도입부 */}
+            {(editing ? editedIntro : post.intro) && (
+              editing ? (
+                <textarea
+                  value={editedIntro}
+                  onChange={(e) => setEditedIntro(e.target.value)}
+                  className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
+                  rows={3}
+                />
+              ) : (
+                <p className="whitespace-pre-wrap px-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+                  {post.intro}
+                </p>
+              )
+            )}
+
+            {/* 이미지 + 캡션 */}
+            {(editing ? editedBlocks : post.imageBlocks!).map((block, i) => (
+              <div key={block.url} className="space-y-3">
+                <img
+                  src={block.url}
+                  alt={`이미지 ${i + 1}`}
+                  className="w-full rounded-lg object-cover"
+                  style={{ maxHeight: 480 }}
+                />
+                {editing ? (
+                  <textarea
+                    value={block.caption}
+                    onChange={(e) => updateCaption(i, e.target.value)}
+                    className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
+                    rows={3}
+                  />
+                ) : (
+                  <p className="whitespace-pre-wrap px-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+                    {block.caption}
+                  </p>
+                )}
+              </div>
+            ))}
+
+            {/* 마무리 */}
+            {(editing ? editedOutro : post.outro) && (
+              editing ? (
+                <textarea
+                  value={editedOutro}
+                  onChange={(e) => setEditedOutro(e.target.value)}
+                  className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
+                  rows={3}
+                />
+              ) : (
+                <p className="whitespace-pre-wrap px-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+                  {post.outro}
+                </p>
+              )
+            )}
+          </div>
+        ) : editing ? (
+          // 일반 글 편집
           <textarea
             value={editedContent}
             onChange={(e) => setEditedContent(e.target.value)}
-            className="w-full min-h-[240px] resize-y rounded-lg bg-transparent text-sm leading-relaxed text-zinc-800 outline-none dark:text-zinc-200"
+            className="min-h-[240px] w-full resize-y rounded-lg bg-transparent text-sm leading-relaxed text-zinc-800 outline-none dark:text-zinc-200"
           />
         ) : (
+          // 일반 글 보기
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
             {post.content}
           </p>
@@ -130,8 +235,14 @@ export default function PostDetailPage() {
             >
               {post.embedding ? "embedding 완료" : "embedding 생성 중..."}
             </span>
-            {post.imageUrl && (
-              <span className="text-blue-500">이미지 생성 글</span>
+            {isReviewPost ? (
+              <span className="text-blue-500">
+                리뷰 글 ({post.imageBlocks!.length}장)
+              </span>
+            ) : (
+              post.imageUrl && (
+                <span className="text-blue-500">이미지 생성 글</span>
+              )
             )}
           </div>
 
@@ -149,7 +260,7 @@ export default function PostDetailPage() {
               <>
                 <button
                   onClick={handleSave}
-                  disabled={saving || editedContent === post.content}
+                  disabled={saving}
                   className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40 dark:text-blue-400 dark:hover:text-blue-300"
                 >
                   {saving ? "저장 중..." : "저장"}

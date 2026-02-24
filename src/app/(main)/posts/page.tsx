@@ -15,7 +15,8 @@ export default function PostsPage() {
   const handleDelete = async (e: React.MouseEvent, postId: Id<"posts">) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm("이 글을 삭제하시겠습니까? embedding 데이터도 함께 삭제됩니다.")) return;
+    if (!confirm("이 글을 삭제하시겠습니까? 학습된 데이터도 함께 삭제됩니다."))
+      return;
 
     setDeletingId(postId);
     try {
@@ -75,6 +76,24 @@ export default function PostsPage() {
                     ? post.content.slice(0, 200) + "..."
                     : post.content}
                 </p>
+                {/* 리뷰 글 썸네일 미리보기 */}
+                {post.imageBlocks && post.imageBlocks.length > 0 && (
+                  <div className="mt-3 flex gap-1.5 overflow-hidden">
+                    {post.imageBlocks.slice(0, 4).map((block, i) => (
+                      <img
+                        key={i}
+                        src={block.url}
+                        alt=""
+                        className="h-12 w-12 rounded object-cover"
+                      />
+                    ))}
+                    {post.imageBlocks.length > 4 && (
+                      <div className="flex h-12 w-12 items-center justify-center rounded bg-zinc-100 text-xs text-zinc-500 dark:bg-zinc-800">
+                        +{post.imageBlocks.length - 4}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="mt-3 flex items-center gap-3 text-xs text-zinc-400">
                   <span>
                     {new Date(post._creationTime).toLocaleDateString("ko-KR")}
@@ -86,6 +105,15 @@ export default function PostsPage() {
                   >
                     {post.embedding ? "embedding 완료" : "embedding 생성 중..."}
                   </span>
+                  {post.imageBlocks && post.imageBlocks.length > 0 ? (
+                    <span className="text-blue-500">
+                      리뷰 글 ({post.imageBlocks.length}장)
+                    </span>
+                  ) : (
+                    post.imageUrl && (
+                      <span className="text-blue-500">이미지 생성 글</span>
+                    )
+                  )}
                 </div>
               </div>
             </Link>
@@ -94,8 +122,18 @@ export default function PostsPage() {
               disabled={deletingId === post._id}
               className="absolute top-3 right-3 p-1 rounded-md text-zinc-300 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 dark:text-zinc-600 dark:hover:text-red-400 dark:hover:bg-red-950 transition-all disabled:opacity-40"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </button>
           </div>

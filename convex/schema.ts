@@ -14,6 +14,16 @@ export default defineSchema({
     userId: v.id("users"),
     content: v.string(),
     imageUrl: v.optional(v.string()),
+    imageBlocks: v.optional(
+      v.array(
+        v.object({
+          url: v.string(),
+          caption: v.string(),
+        })
+      )
+    ),
+    intro: v.optional(v.string()),
+    outro: v.optional(v.string()),
     embedding: v.optional(v.array(v.float64())),
   }).vectorIndex("by_embedding", {
     vectorField: "embedding",

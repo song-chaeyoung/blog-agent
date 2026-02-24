@@ -46,3 +46,30 @@ export const saveGeneratedPost = internalMutation({
     });
   },
 });
+
+/** 리뷰 글 저장 (다중 이미지) */
+export const saveGeneratedReviewPost = internalMutation({
+  args: {
+    userId: v.id("users"),
+    content: v.string(),
+    imageBlocks: v.array(
+      v.object({
+        url: v.string(),
+        caption: v.string(),
+      })
+    ),
+    intro: v.string(),
+    outro: v.string(),
+    embedding: v.array(v.float64()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("posts", {
+      userId: args.userId,
+      content: args.content,
+      imageBlocks: args.imageBlocks,
+      intro: args.intro,
+      outro: args.outro,
+      embedding: args.embedding,
+    });
+  },
+});

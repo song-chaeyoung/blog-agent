@@ -165,6 +165,11 @@ export const updatePost = mutation({
   args: {
     postId: v.id("posts"),
     content: v.string(),
+    imageBlocks: v.optional(
+      v.array(v.object({ url: v.string(), caption: v.string() }))
+    ),
+    intro: v.optional(v.string()),
+    outro: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -184,10 +189,21 @@ export const updatePost = mutation({
       throw new Error("수정 권한이 없습니다.");
     }
 
-    await ctx.db.patch(args.postId, {
+    const patch: Record<string, unknown> = {
       content: args.content,
       embedding: undefined,
-    });
+    };
+    if (args.imageBlocks !== undefined) {
+      patch.imageBlocks = args.imageBlocks;
+    }
+    if (args.intro !== undefined) {
+      patch.intro = args.intro;
+    }
+    if (args.outro !== undefined) {
+      patch.outro = args.outro;
+    }
+
+    await ctx.db.patch(args.postId, patch);
 
     // embedding 재생성 스케줄링
     await ctx.scheduler.runAfter(0, internal.posts.generateEmbedding, {
