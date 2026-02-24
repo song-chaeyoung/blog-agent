@@ -4,15 +4,17 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import OpenAI from "openai";
 
-const openai = () =>
-  new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
  * 이미지 → Vision 묘사 → Embedding → RAG → 블로그 글 생성
  */
 export const createBlogFromImage = action({
   args: { imageUrl: v.string() },
-  handler: async (ctx, args): Promise<{ content: string; postId: Id<"posts"> }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ content: string; postId: Id<"posts"> }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("인증되지 않은 사용자입니다.");
 
@@ -62,7 +64,7 @@ export const createBlogFromImage = action({
 
     const similarPosts = await ctx.runQuery(
       internal.generateHelpers.getPostsByIds,
-      { ids: searchResults.map((r) => r._id) }
+      { ids: searchResults.map((r) => r._id) },
     );
 
     // 4. 블로그 글 생성
@@ -71,7 +73,7 @@ export const createBlogFromImage = action({
       .join("\n\n");
 
     const generateRes = await ai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",
@@ -81,8 +83,17 @@ export const createBlogFromImage = action({
 규칙:
 - 마크다운 문법을 사용하지 마세요 (**, ##, - 등 금지)
 - 일반 줄글 형식으로 작성하세요
-- 참고 글의 문체와 최대한 비슷하게 작성하세요
-- 자연스러운 블로그 글처럼 작성하세요`,
+- 참고 글의 문장 종결어미, 문장 길이, 어휘 선택, 구어체 수준을 최대한 따라하세요
+- 참고 글에 없는 말투나 표현은 사용하지 마세요
+
+절대 사용 금지 표현 (AI 스타일):
+- "~하는 것 같습니다", "~할 수 있습니다", "~하곤 합니다", "~하곤 했습니다"
+- "결론적으로", "마지막으로", "종합하면", "무엇보다", "한마디로"
+- "다양한", "특별한", "완벽한", "인상적인" 등 과도한 수식어 남발
+- "또한", "특히", "더불어", "아울러" 등으로 매 문단 시작하는 것
+- 감탄 나열 ("아늑하고 따뜻하며 포근한 분위기")
+- 설명조 반복 ("~인데요", "~거든요"를 매 문장 끝에 반복)
+- "추천드립니다", "강력 추천", "꼭 방문해 보세요" 같은 광고성 표현`,
         },
         {
           role: "user",
@@ -102,7 +113,7 @@ export const createBlogFromImage = action({
         content: generatedContent,
         imageUrl: args.imageUrl,
         embedding,
-      }
+      },
     );
 
     return { content: generatedContent, postId };
@@ -117,7 +128,7 @@ export const createBlogReview = action({
   args: { imageUrls: v.array(v.string()) },
   handler: async (
     ctx,
-    args
+    args,
   ): Promise<{
     content: string;
     imageBlocks: Array<{ url: string; caption: string }>;
@@ -171,7 +182,7 @@ export const createBlogReview = action({
           } catch {
             return { index: i + batchIdx, url, description: "" };
           }
-        })
+        }),
       );
       visionResults.push(...batchResults);
     }
@@ -202,7 +213,7 @@ export const createBlogReview = action({
 
     const similarPosts = await ctx.runQuery(
       internal.generateHelpers.getPostsByIds,
-      { ids: searchResults.map((r) => r._id) }
+      { ids: searchResults.map((r) => r._id) },
     );
 
     const referenceTexts = similarPosts
@@ -215,7 +226,7 @@ export const createBlogReview = action({
       .join("\n\n");
 
     const generateRes = await ai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",
@@ -228,7 +239,18 @@ export const createBlogReview = action({
 - captions: 각 이미지에 대한 설명 문단 (2~4문장씩)
 - outro: 마무리 후기 (2~3문장)
 - 전체 글이 하나의 리뷰처럼 자연스럽게 이어져야 합니다
+- 참고 글의 문장 종결어미, 문장 길이, 어휘 선택, 구어체 수준을 최대한 따라하세요
+- 참고 글에 없는 말투나 표현은 사용하지 마세요
 - 반드시 JSON 형식으로 응답하세요
+
+절대 사용 금지 표현 (AI 스타일):
+- "~하는 것 같습니다", "~할 수 있습니다", "~하곤 합니다", "~하곤 했습니다"
+- "결론적으로", "마지막으로", "종합하면", "무엇보다", "한마디로"
+- "다양한", "특별한", "완벽한", "인상적인" 등 과도한 수식어 남발
+- "또한", "특히", "더불어", "아울러" 등으로 매 문단 시작하는 것
+- 감탄 나열 ("아늑하고 따뜻하며 포근한 분위기")
+- 설명조 반복 ("~인데요", "~거든요"를 매 문장 끝에 반복)
+- "추천드립니다", "강력 추천", "꼭 방문해 보세요" 같은 광고성 표현
 
 응답 형식:
 {
@@ -276,7 +298,7 @@ export const createBlogReview = action({
     // 7. 저장
     const postId = await ctx.runMutation(
       internal.generateHelpers.saveGeneratedReviewPost,
-      { userId, content, imageBlocks, intro, outro, embedding }
+      { userId, content, imageBlocks, intro, outro, embedding },
     );
 
     return { content, imageBlocks, intro, outro, postId };
