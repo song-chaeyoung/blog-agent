@@ -1,111 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
-
-type ImageBlock = { url: string; caption: string };
+import { usePostEditor } from "../../../../hooks/usePostEditor";
 
 export default function PostDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const post = useQuery(api.posts.getPost, {
     postId: id as Id<"posts">,
   });
-  const deletePost = useMutation(api.posts.deletePost);
-  const updatePost = useMutation(api.posts.updatePost);
-
-  const [deleting, setDeleting] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [editedContent, setEditedContent] = useState("");
-  const [editedBlocks, setEditedBlocks] = useState<ImageBlock[]>([]);
-  const [editedIntro, setEditedIntro] = useState("");
-  const [editedOutro, setEditedOutro] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  const isReviewPost = post?.imageBlocks && post.imageBlocks.length > 0;
-
-  const handleDelete = async () => {
-    if (!confirm("정말 이 글을 삭제하시겠습니까?")) return;
-
-    setDeleting(true);
-    try {
-      await deletePost({ postId: id as Id<"posts"> });
-      router.push("/posts");
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const handleEditStart = () => {
-    if (!post) return;
-    setEditedContent(post.content);
-    setEditedBlocks(post.imageBlocks ?? []);
-    setEditedIntro(post.intro ?? "");
-    setEditedOutro(post.outro ?? "");
-    setEditing(true);
-  };
-
-  const handleEditCancel = () => {
-    setEditing(false);
-    setEditedContent("");
-    setEditedBlocks([]);
-    setEditedIntro("");
-    setEditedOutro("");
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      if (isReviewPost) {
-        const parts: string[] = [];
-        if (editedIntro) parts.push(editedIntro);
-        editedBlocks.forEach((b) => { if (b.caption) parts.push(b.caption); });
-        if (editedOutro) parts.push(editedOutro);
-        await updatePost({
-          postId: id as Id<"posts">,
-          content: parts.join("\n\n"),
-          imageBlocks: editedBlocks,
-          intro: editedIntro,
-          outro: editedOutro,
-        });
-      } else {
-        await updatePost({
-          postId: id as Id<"posts">,
-          content: editedContent,
-        });
-      }
-      setEditing(false);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCopy = async () => {
-    let text: string;
-    if (editing) {
-      text = isReviewPost
-        ? editedBlocks.map((b) => b.caption).join("\n\n")
-        : editedContent;
-    } else {
-      text = post?.content ?? "";
-    }
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const updateCaption = (index: number, caption: string) => {
-    setEditedBlocks((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], caption };
-      return updated;
-    });
-  };
 
   if (post === undefined) {
     return <p className="text-sm text-zinc-400">로딩 중...</p>;
@@ -124,6 +30,34 @@ export default function PostDetailPage() {
       </div>
     );
   }
+
+  return <PostDetail post={post} />;
+}
+
+// ─── 실제 포스트 뷰 (post가 확정된 이후) ──────────────────────────────────────
+
+type ConvexPost = NonNullable<
+  ReturnType<typeof useQuery<typeof api.posts.getPost>>
+>;
+
+function PostDetail({ post }: { post: ConvexPost }) {
+  const {
+    isReviewPost,
+    editing,
+    draft,
+    saving,
+    deleting,
+    copied,
+    startEdit,
+    cancelEdit,
+    updateCaption,
+    updateIntro,
+    updateOutro,
+    updateContent,
+    handleSave,
+    handleDelete,
+    handleCopy,
+  } = usePostEditor(post);
 
   return (
     <div className="space-y-6">
@@ -151,14 +85,14 @@ export default function PostDetailPage() {
       {/* 글 내용 */}
       <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         {isReviewPost ? (
-          // 리뷰 글 레이아웃: intro + 이미지/캡션 + outro
+          // ── 리뷰 글: intro + 이미지/캡션 + outro
           <div className="space-y-6">
             {/* 도입부 */}
-            {(editing ? editedIntro : post.intro) && (
-              editing ? (
+            {(editing ? draft?.kind === "review" && draft.intro : post.intro) &&
+              (editing && draft?.kind === "review" ? (
                 <textarea
-                  value={editedIntro}
-                  onChange={(e) => setEditedIntro(e.target.value)}
+                  value={draft.intro}
+                  onChange={(e) => updateIntro(e.target.value)}
                   className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
                   rows={3}
                 />
@@ -166,11 +100,13 @@ export default function PostDetailPage() {
                 <p className="whitespace-pre-wrap px-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
                   {post.intro}
                 </p>
-              )
-            )}
+              ))}
 
             {/* 이미지 + 캡션 */}
-            {(editing ? editedBlocks : post.imageBlocks!).map((block, i) => (
+            {(editing && draft?.kind === "review"
+              ? draft.blocks
+              : post.imageBlocks!
+            ).map((block, i) => (
               <div key={block.url} className="space-y-3">
                 <img
                   src={block.url}
@@ -178,9 +114,9 @@ export default function PostDetailPage() {
                   className="w-full rounded-lg object-cover"
                   style={{ maxHeight: 480 }}
                 />
-                {editing ? (
+                {editing && draft?.kind === "review" ? (
                   <textarea
-                    value={block.caption}
+                    value={draft.blocks[i]?.caption ?? ""}
                     onChange={(e) => updateCaption(i, e.target.value)}
                     className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
                     rows={3}
@@ -194,11 +130,11 @@ export default function PostDetailPage() {
             ))}
 
             {/* 마무리 */}
-            {(editing ? editedOutro : post.outro) && (
-              editing ? (
+            {(editing ? draft?.kind === "review" && draft.outro : post.outro) &&
+              (editing && draft?.kind === "review" ? (
                 <textarea
-                  value={editedOutro}
-                  onChange={(e) => setEditedOutro(e.target.value)}
+                  value={draft.outro}
+                  onChange={(e) => updateOutro(e.target.value)}
                   className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
                   rows={3}
                 />
@@ -206,32 +142,30 @@ export default function PostDetailPage() {
                 <p className="whitespace-pre-wrap px-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
                   {post.outro}
                 </p>
-              )
-            )}
+              ))}
           </div>
-        ) : editing ? (
-          // 일반 글 편집
+        ) : editing && draft?.kind === "plain" ? (
+          // ── 일반 글 편집
           <textarea
-            value={editedContent}
-            onChange={(e) => setEditedContent(e.target.value)}
+            value={draft.content}
+            onChange={(e) => updateContent(e.target.value)}
             className="min-h-[240px] w-full resize-y rounded-lg bg-transparent text-sm leading-relaxed text-zinc-800 outline-none dark:text-zinc-200"
           />
         ) : (
-          // 일반 글 보기
+          // ── 일반 글 보기
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
             {post.content}
           </p>
         )}
 
+        {/* 하단 메타 + 액션 */}
         <div className="mt-6 flex items-center justify-between border-t border-zinc-100 pt-4 dark:border-zinc-800">
           <div className="flex items-center gap-3 text-xs text-zinc-400">
             <span>
               {new Date(post._creationTime).toLocaleDateString("ko-KR")}
             </span>
             <span
-              className={
-                post.embedding ? "text-green-500" : "text-yellow-500"
-              }
+              className={post.embedding ? "text-green-500" : "text-yellow-500"}
             >
               {post.embedding ? "embedding 완료" : "embedding 생성 중..."}
             </span>
@@ -247,7 +181,7 @@ export default function PostDetailPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* 복사 버튼 */}
+            {/* 복사 */}
             <button
               onClick={handleCopy}
               className="text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
@@ -255,7 +189,7 @@ export default function PostDetailPage() {
               {copied ? "복사 완료!" : "복사"}
             </button>
 
-            {/* 수정/저장/취소 버튼 */}
+            {/* 수정 / 저장 / 취소 */}
             {editing ? (
               <>
                 <button
@@ -266,7 +200,7 @@ export default function PostDetailPage() {
                   {saving ? "저장 중..." : "저장"}
                 </button>
                 <button
-                  onClick={handleEditCancel}
+                  onClick={cancelEdit}
                   className="text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                 >
                   취소
@@ -274,14 +208,14 @@ export default function PostDetailPage() {
               </>
             ) : (
               <button
-                onClick={handleEditStart}
+                onClick={startEdit}
                 className="text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
               >
                 수정
               </button>
             )}
 
-            {/* 삭제 버튼 */}
+            {/* 삭제 */}
             <button
               onClick={handleDelete}
               disabled={deleting}
