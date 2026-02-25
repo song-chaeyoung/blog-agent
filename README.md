@@ -1,84 +1,92 @@
-# My Persona Writer (나만의 AI 블로그 작가)
+# CopyMe
 
-> 사진 한 장만 업로드하면, 내 과거 글투와 문체를 완벽하게 학습한 AI가 자동으로 블로그 초안을 작성해주는 웹 서비스
+이미지를 업로드하면 내 문체로 블로그 리뷰 글을 자동 생성해주는 AI 글쓰기 도구입니다.
+기존 블로그 글을 학습 데이터로 임포트하면, AI가 내 글쓰기 스타일을 분석해 새 글을 작성합니다.
 
-## 핵심 가치
+## 주요 기능
 
-- **초개인화** — 남들이 쓰는 뻔한 AI 글이 아닌, '나다운' 글 생성
-- **멀티모달** — 시각 정보(사진)를 텍스트로 변환하여 글감으로 활용
-- **효율성** — 사진만 던지면 10초 만에 초안 완성
+- **글 임포트** — 기존 블로그 글을 붙여넣어 저장. `---` 구분자로 여러 글을 한 번에 임포트 가능
+- **글 생성** — 이미지(최대 20장) + 메모 + SEO 키워드를 입력하면 내 문체로 리뷰 글 자동 생성
+- **유사 글 검색** — 벡터 임베딩 기반으로 기존 글 중 유사한 글을 찾아 문체 참고
+- **결과 편집 & 복사** — 생성된 글을 수정하고 클립보드에 복사
 
 ## 기술 스택
 
-| 구분         | 기술                 | 선정 이유                                                          |
-| ------------ | -------------------- | ------------------------------------------------------------------ |
-| Frontend     | Next.js (App Router) | React 기반 풀스택 프레임워크, 서버 컴포넌트 활용                   |
-| Language     | TypeScript           | 정적 타입으로 에러 방지 및 유지보수성 향상                         |
-| Backend & DB | Convex               | DB, 백엔드 로직, Vector Search를 한 번에 해결                      |
-| AI Model     | OpenAI API           | gpt-4o-mini (Vision/Text 겸용), text-embedding-3-small (벡터 변환) |
-| Styling      | Tailwind CSS         | 빠르고 직관적인 UI 개발                                            |
-| Auth         | Clerk                | 소셜 로그인 포함 인증 로직 간편 구현                               |
+| 영역 | 기술 |
+|------|------|
+| 프레임워크 | Next.js 16 (App Router) |
+| 언어 | TypeScript |
+| 스타일 | Tailwind CSS v4 |
+| 인증 | Clerk |
+| 백엔드 / DB | Convex (벡터 검색 포함) |
+| AI | OpenAI (GPT-4o, text-embedding-3-small) |
+| 알림 | Sonner |
 
-## 시스템 아키텍처
+## 글 생성 흐름
 
-RAG (검색 증강 생성) 방식을 활용하여 별도의 파인 튜닝 없이 개인화를 구현합니다.
+RAG(검색 증강 생성) 방식으로 파인 튜닝 없이 개인화를 구현합니다.
 
 ```
-사진 업로드 → Vision AI (사진 분석) → Embedding (벡터 변환)
-    → Vector Search (유사 과거 글 3개 추출) → Text Generation (최종 글 생성)
+이미지 업로드 → Convex Storage 저장
+    → 기존 글 벡터 검색 (유사 문체 추출)
+    → GPT-4o에 이미지 + 메모 + 유사 글 전달
+    → 도입부 / 이미지별 캡션 / 마무리 구성
 ```
-
-1. **Input** — 사용자가 사진 업로드
-2. **Vision** — AI가 사진을 분석해 상황 묘사 텍스트 생성
-3. **Embedding** — 상황 묘사 텍스트를 벡터(숫자 좌표)로 변환
-4. **Vector Search** — DB에 저장된 과거 글 중 가장 유사한 글 3개 추출
-5. **Generation** — 사진 묘사 + 참고 글(말투) + 프롬프트를 조합해 최종 블로그 글 생성
-
-## DB 스키마
-
-```typescript
-// convex/schema.ts
-export default defineSchema({
-  users: defineTable({
-    name: v.string(),
-    email: v.string(),
-    tokenIdentifier: v.string(),
-  }).index("by_token", ["tokenIdentifier"]),
-
-  posts: defineTable({
-    userId: v.string(),
-    content: v.string(),
-    imageUrl: v.optional(v.string()),
-    embedding: v.array(v.float64()),
-  }).vectorIndex("by_embedding", {
-    vectorField: "embedding",
-    dimensions: 1536,
-    filterFields: ["userId"],
-  }),
-});
-```
-
-## 핵심 기능
-
-### A. 학습하기 (Writing & Indexing)
-
-- 사용자가 평소처럼 글을 쓰거나 기존 블로그 글을 복사해서 저장
-- 글이 저장될 때마다 자동으로 OpenAI 임베딩 API를 호출해 벡터 값 생성
-
-### B. 글 생성하기 (Generating)
-
-- 드래그 앤 드롭으로 사진 업로드 후 "글 작성" 버튼 클릭
-- 사진 분석 → 유사 과거 글 검색 → 스타일 모방 글쓰기
-- 일반 줄글 형식으로 결과 제공
 
 ## 시작하기
 
-```bash
-# 의존성 설치
-npm install
+### 환경 변수 설정
 
-# 개발 서버 실행
-npm run dev
+`.env.local` 파일을 생성하고 아래 값을 채워주세요.
+
+```env
+# Clerk
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+
+# Convex
+NEXT_PUBLIC_CONVEX_URL=
+
+# OpenAI (Convex 환경 변수로도 설정 필요)
+OPENAI_API_KEY=
 ```
 
-[http://localhost:3000](http://localhost:3000)에서 확인할 수 있습니다.
+### 개발 서버 실행
+
+```bash
+bun install
+bun dev
+```
+
+Convex 개발 서버도 함께 실행합니다.
+
+```bash
+bunx convex dev
+```
+
+## 프로젝트 구조
+
+```
+src/
+├── app/
+│   ├── (main)/
+│   │   ├── import/     # 글 임포트 페이지
+│   │   ├── generate/   # 글 생성 페이지
+│   │   └── posts/      # 글 목록 & 상세 페이지
+│   ├── layout.tsx
+│   └── page.tsx        # 랜딩 (로그인 유도)
+├── components/
+│   └── image-uploader.tsx
+├── hooks/
+│   ├── usePostEditor.ts
+│   └── useResultEditor.ts
+└── types/
+    └── post.ts
+
+convex/
+├── schema.ts           # DB 스키마 (users, posts)
+├── posts.ts            # 글 CRUD
+├── generate.ts         # AI 글 생성 액션
+├── generateHelpers.ts  # 프롬프트 / 유사 글 검색
+└── images.ts           # 이미지 업로드
+```

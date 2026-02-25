@@ -20,7 +20,7 @@ export default function Home() {
     <div className="flex min-h-screen items-start justify-center bg-zinc-50 font-sans dark:bg-black">
       <main className="w-full max-w-2xl px-6 py-12">
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50 mb-10">
-          Blog Agent
+          CopyMe
         </h1>
         <div className="text-center py-20">
           <p className="text-zinc-500 dark:text-zinc-400 mb-4">
