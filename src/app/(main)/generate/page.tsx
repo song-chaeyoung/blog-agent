@@ -96,7 +96,7 @@ export default function GeneratePage() {
           이미지를 업로드하면 AI가 내 문체로 블로그 리뷰 글을 작성합니다. (최대
           20장)
         </p>
-        <ImageUploader onImagesChange={handleImagesChange} maxImages={20} />
+        <ImageUploader onImagesChange={handleImagesChange} />
         <textarea
           value={memo}
           onChange={(e) => setMemo(e.target.value)}

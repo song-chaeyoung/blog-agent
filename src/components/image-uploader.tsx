@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { MAX_FILE_SIZE, ACCEPTED_TYPES, MAX_IMAGES } from "../constants";
 
 type ImageItem =
   | { status: "uploading"; localPreview: string }
@@ -14,12 +15,9 @@ interface ImageUploaderProps {
   maxImages?: number;
 }
 
-const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-const MAX_SIZE = 5 * 1024 * 1024; // 5MB
-
 export default function ImageUploader({
   onImagesChange,
-  maxImages = 20,
+  maxImages = MAX_IMAGES,
 }: ImageUploaderProps) {
   const generateUploadUrl = useMutation(api.images.generateUploadUrl);
   const getImageUrl = useMutation(api.images.getImageUrl);
@@ -92,7 +90,7 @@ export default function ImageUploader({
       const validFiles: { file: File; preview: string }[] = [];
       for (const file of toAdd) {
         if (!ACCEPTED_TYPES.includes(file.type)) continue;
-        if (file.size > MAX_SIZE) continue;
+        if (file.size > MAX_FILE_SIZE) continue;
         validFiles.push({
           file,
           preview: URL.createObjectURL(file),

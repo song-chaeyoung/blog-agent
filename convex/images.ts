@@ -1,8 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
-
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+import { ALLOWED_TYPES, MAX_FILE_SIZE } from "./constants";
 
 /**
  * 클라이언트에서 Convex Storage에 파일을 업로드하기 위한 URL을 생성합니다.

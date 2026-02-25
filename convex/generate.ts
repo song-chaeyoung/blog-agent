@@ -3,6 +3,14 @@ import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import OpenAI from "openai";
+import {
+  BATCH_SIZE,
+  BLOG_MAX_TOKENS,
+  RAG_SEARCH_LIMIT,
+  REVIEW_MAX_TOKENS,
+  REVIEW_VISION_MAX_TOKENS,
+  VISION_MAX_TOKENS,
+} from "./constants";
 
 const openai = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -42,7 +50,7 @@ export const createBlogFromImage = action({
           ],
         },
       ],
-      max_tokens: 300,
+      max_tokens: VISION_MAX_TOKENS,
     });
 
     const description = visionRes.choices[0].message.content ?? "";
@@ -58,7 +66,7 @@ export const createBlogFromImage = action({
     // 3. Vector Search: 유사한 내 글 3개 추출
     const searchResults = await ctx.vectorSearch("posts", "by_embedding", {
       vector: embedding,
-      limit: 3,
+      limit: RAG_SEARCH_LIMIT,
       filter: (q) => q.eq("userId", userId),
     });
 
@@ -85,7 +93,7 @@ export const createBlogFromImage = action({
           content: `[이미지 묘사]\n${description}\n\n${referenceTexts}\n\n위 이미지 묘사를 바탕으로, 참고 글들의 문체를 살려 블로그 글을 작성해 주세요.`,
         },
       ],
-      max_tokens: 1000,
+      max_tokens: BLOG_MAX_TOKENS,
     });
 
     const generatedContent = generateRes.choices[0].message.content ?? "";
@@ -130,8 +138,7 @@ export const createBlogReview = action({
 
     const ai = openai();
 
-    // 1. Vision: 각 이미지 병렬 분석 (5개씩 배치)
-    const BATCH_SIZE = 5;
+    // 1. Vision: 각 이미지 병렬 분석 (BATCH_SIZE개씩 배치)
     const visionResults: Array<{
       index: number;
       url: string;
@@ -157,7 +164,7 @@ export const createBlogReview = action({
                   ],
                 },
               ],
-              max_tokens: 200,
+              max_tokens: REVIEW_VISION_MAX_TOKENS,
             });
             return {
               index: i + batchIdx,
@@ -192,7 +199,7 @@ export const createBlogReview = action({
     // 3. RAG: 유사한 내 글 검색
     const searchResults = await ctx.vectorSearch("posts", "by_embedding", {
       vector: embedding,
-      limit: 3,
+      limit: RAG_SEARCH_LIMIT,
       filter: (q) => q.eq("userId", userId),
     });
 
@@ -224,7 +231,7 @@ export const createBlogReview = action({
           content: `${args.memo ? `[내 메모 - 이 내용을 글에 반드시 반영하세요]\n${args.memo}\n\n` : ""}${args.keywords && args.keywords.length > 0 ? `[SEO 키워드 - 글 전체에 자연스럽게 총 5~6회 녹여서 사용하세요]\n${args.keywords.join(", ")}\n\n` : ""}${imageDescriptions}\n\n${referenceTexts}\n\n위 ${successResults.length}개 이미지 묘사를 바탕으로, 참고 글들의 문체를 살려 블로그 리뷰 글을 작성해 주세요. 반드시 JSON 형식으로 응답하세요.`,
         },
       ],
-      max_tokens: 2000,
+      max_tokens: REVIEW_MAX_TOKENS,
       response_format: { type: "json_object" },
     });
 
