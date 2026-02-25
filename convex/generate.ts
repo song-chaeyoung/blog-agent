@@ -240,6 +240,10 @@ export const createBlogReview = action({
     const captions = parsed.captions ?? [];
     const outro = parsed.outro ?? "";
 
+    if (!intro && captions.length === 0 && !outro) {
+      throw new Error("AI가 빈 응답을 반환했습니다. 다시 시도해 주세요.");
+    }
+
     // 5. imageBlocks 구성
     const imageBlocks = successResults.map((r, i) => ({
       url: r.url,

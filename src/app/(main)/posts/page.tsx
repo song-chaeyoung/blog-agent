@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
+import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -21,6 +22,8 @@ export default function PostsPage() {
     setDeletingId(postId);
     try {
       await deletePost({ postId });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "삭제 중 오류가 발생했습니다.");
     } finally {
       setDeletingId(null);
     }
@@ -42,7 +45,13 @@ export default function PostsPage() {
             </span>
             {embeddingDone < totalPosts && (
               <button
-                onClick={() => retryEmbeddings()}
+                onClick={async () => {
+                  try {
+                    await retryEmbeddings();
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "재시도 중 오류가 발생했습니다.");
+                  }
+                }}
                 className="text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 재시도

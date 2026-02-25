@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
+import { Toaster } from "sonner";
 
 const tabs = [
   { href: "/posts", label: "글 목록" },
@@ -75,6 +76,7 @@ export default function MainLayout({
           </div>
         )}
       </main>
+      <Toaster richColors position="bottom-center" />
     </div>
   );
 }

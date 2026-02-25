@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { ImageBlock } from "@/types/post";
@@ -109,6 +110,9 @@ export function usePostEditor(post: Doc<"posts">) {
         await updatePost({ postId: post._id, content: draft.content });
       }
       setDraft(null);
+      toast.success("저장되었습니다.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "저장 중 오류가 발생했습니다.");
     } finally {
       setSaving(false);
     }
@@ -120,6 +124,8 @@ export function usePostEditor(post: Doc<"posts">) {
     try {
       await deletePost({ postId: post._id });
       router.push("/posts");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "삭제 중 오류가 발생했습니다.");
     } finally {
       setDeleting(false);
     }
@@ -135,9 +141,13 @@ export function usePostEditor(post: Doc<"posts">) {
     } else {
       text = post.content;
     }
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("클립보드 복사에 실패했습니다.");
+    }
   }, [draft, post.content]);
 
   return {

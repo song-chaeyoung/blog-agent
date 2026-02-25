@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
+import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
 
 const DELIMITER = "---";
@@ -31,6 +32,8 @@ export default function ImportPage() {
       await bulkCreate({ contents: parsed });
       setRaw("");
       router.push("/posts");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "저장 중 오류가 발생했습니다.");
     } finally {
       setSaving(false);
     }

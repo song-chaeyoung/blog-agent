@@ -3,6 +3,7 @@
 import { useReducer, useCallback, useState } from "react";
 import { useAction } from "convex/react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
 import ImageUploader from "@/components/image-uploader";
 import type { ResultData } from "@/types/post";
@@ -78,9 +79,9 @@ export default function GeneratePage() {
         keywords: keywords.length > 0 ? keywords : undefined,
       });
       dispatch({ type: "SET_RESULT", result });
-    } catch {
+    } catch (e) {
       dispatch({ type: "RESET" });
-      alert("글 생성에 실패했습니다. 다시 시도해 주세요.");
+      toast.error(e instanceof Error ? e.message : "글 생성에 실패했습니다. 다시 시도해 주세요.");
     }
   };
 

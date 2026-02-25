@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import type { ImageBlock, ResultData } from "@/types/post";
 
@@ -85,6 +86,8 @@ export function useResultEditor(result: ResultData) {
         outro: draft.outro,
       });
       router.push(`/posts/${result.postId}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "저장 중 오류가 발생했습니다.");
     } finally {
       setSaving(false);
     }
@@ -94,9 +97,13 @@ export function useResultEditor(result: ResultData) {
     const text = editMode
       ? draft.blocks.map((b) => b.caption).join("\n\n")
       : result.content;
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("클립보드 복사에 실패했습니다.");
+    }
   }, [editMode, draft.blocks, result.content]);
 
   // 표시할 실제 데이터 (편집 모드면 draft, 아니면 원본)
