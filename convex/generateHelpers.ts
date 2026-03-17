@@ -8,11 +8,36 @@ export const getUserId = internalQuery({
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) =>
-        q.eq("tokenIdentifier", args.tokenIdentifier)
+        q.eq("tokenIdentifier", args.tokenIdentifier),
       )
       .unique();
     if (!user) throw new Error("사용자를 찾을 수 없습니다.");
     return user._id;
+  },
+});
+
+/** 사용자 프로필 조회 (문체 포함) */
+export const getUserProfile = internalQuery({
+  args: { tokenIdentifier: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", args.tokenIdentifier),
+      )
+      .unique();
+  },
+});
+
+// 최근글 조회
+export const getRecentPosts = internalQuery({
+  args: { userId: v.id("users"), limit: v.number() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("posts")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .take(args.limit);
   },
 });
 
@@ -36,6 +61,7 @@ export const saveGeneratedPost = internalMutation({
     content: v.string(),
     imageUrl: v.string(),
     embedding: v.array(v.float64()),
+    summary: v.optional(v.string()), // 추가
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("posts", {
@@ -43,6 +69,7 @@ export const saveGeneratedPost = internalMutation({
       content: args.content,
       imageUrl: args.imageUrl,
       embedding: args.embedding,
+      summary: args.summary, // 추가
     });
   },
 });
@@ -56,11 +83,12 @@ export const saveGeneratedReviewPost = internalMutation({
       v.object({
         url: v.string(),
         caption: v.string(),
-      })
+      }),
     ),
     intro: v.string(),
     outro: v.string(),
     embedding: v.array(v.float64()),
+    summary: v.optional(v.string()), // 추가
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("posts", {
@@ -70,6 +98,21 @@ export const saveGeneratedReviewPost = internalMutation({
       intro: args.intro,
       outro: args.outro,
       embedding: args.embedding,
+      summary: args.summary, // 추가
+    });
+  },
+});
+
+/** 사용자 문체 프로필 갱신 */
+export const updateStyleProfile = internalMutation({
+  args: {
+    userId: v.id("users"),
+    styleProfile: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, {
+      styleProfile: args.styleProfile,
+      styleUpdatedAt: Date.now(),
     });
   },
 });
