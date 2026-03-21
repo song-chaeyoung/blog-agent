@@ -8,24 +8,85 @@ import {
   BLOG_MAX_TOKENS,
   RAG_SEARCH_LIMIT,
   REVIEW_MAX_TOKENS,
-  REVIEW_VISION_MAX_TOKENS,
   VISION_MAX_TOKENS,
 } from "./constants";
 
 const STYLE_REFERENCE_LIMIT = 3;
-const RAG_TOP_K = 3;
+const RAG_TOP_K = 5;
 
 const STYLE_REFERENCE_CHAR_LIMIT = 1400;
-const RAG_REFERENCE_ITEM_CHAR_LIMIT = 320;
-const RAG_REFERENCE_CHAR_LIMIT = 2200;
+const RAG_REFERENCE_ITEM_CHAR_LIMIT = 800;
+const RAG_REFERENCE_SUMMARY_CHAR_LIMIT = 320;
+const RAG_REFERENCE_CONTENT_CHAR_LIMIT = 560;
+const RAG_REFERENCE_CHAR_LIMIT = 4200;
+const RAG_TONE_ITEM_CHAR_LIMIT = 450;
+const RAG_TONE_CHAR_LIMIT = 2600;
 const IMAGE_DESCRIPTION_CHAR_LIMIT = 500;
-const IMAGE_SUMMARY_CHAR_LIMIT = 180;
+const IMAGE_SUMMARY_CHAR_LIMIT = 320;
 const IMAGE_SUMMARY_BLOCK_CHAR_LIMIT = 2200;
 const MEMO_CHAR_LIMIT = 500;
 const KEYWORDS_CHAR_LIMIT = 300;
 const OUTLINE_INPUT_CHAR_LIMIT = 5600;
 const FINAL_INPUT_CHAR_LIMIT = 3600;
 const SUMMARY_CHAR_LIMIT = 260;
+const CAPTION_CHAR_LIMIT = 700;
+const OUTLINE_ITEM_CHAR_LIMIT = 360;
+const FINAL_STYLE_BLOCK_CHAR_LIMIT = 900;
+const FINAL_RAG_BLOCK_CHAR_LIMIT = 1200;
+const FINAL_TONE_BLOCK_CHAR_LIMIT = 1400;
+const FINAL_IMAGE_DIGEST_BLOCK_CHAR_LIMIT = 900;
+const FINAL_OUTLINE_BLOCK_CHAR_LIMIT = 900;
+const FINAL_MEMO_BLOCK_CHAR_LIMIT = 260;
+const FINAL_KEYWORDS_BLOCK_CHAR_LIMIT = 180;
+const MIN_VISION_DESCRIPTION_CHARS = 140;
+const MIN_VISION_DESCRIPTION_SENTENCES = 4;
+const MIN_REVIEW_CAPTION_CHARS = 140;
+const MIN_REVIEW_CAPTION_SENTENCES = 3;
+const MIN_REVIEW_EDGE_CHARS = 120;
+const MIN_REVIEW_EDGE_SENTENCES = 3;
+const STYLE_REFRESH_INTERVAL_MS = 1000 * 60 * 60 * 24 * 7;
+const CAPTION_ANCHOR_STOPWORDS = new Set([
+  "그리고",
+  "하지만",
+  "그래서",
+  "정말",
+  "너무",
+  "오늘",
+  "이번",
+  "여기",
+  "저기",
+  "사진",
+  "모습",
+  "느낌",
+  "분위기",
+  "공간",
+  "사람",
+  "이곳",
+  "장소",
+  "메뉴",
+  "요리",
+  "음식",
+]);
+
+const SINGLE_VISION_PROMPT =
+  "Describe this image for writing a personal blog post in Korean.\n" +
+  "Rules:\n" +
+  "1) Write 4-6 sentences.\n" +
+  "2) Cover only visible facts: overall scene, foreground/background details, and color/light or texture cues.\n" +
+  "3) Keep details concrete and avoid one-line generic summaries.\n" +
+  "4) Do not infer unseen information (people's actions, conversations, emotions, or atmosphere).\n" +
+  "5) Do not use markdown.";
+
+const SINGLE_VISION_RETRY_PROMPT =
+  "The previous description was too short. Rewrite the image description in Korean with richer detail.\n" +
+  "Rules:\n" +
+  "1) Write 5-7 sentences and at least 180 Korean characters.\n" +
+  "2) Include only visible details: scene, objects, placement, and sensory cues (color/light/texture).\n" +
+  "3) Avoid generic phrases and repetition.\n" +
+  "4) Do not infer unseen information (people's actions, conversations, emotions, or atmosphere).\n" +
+  "5) Do not use markdown.";
+
+const VISION_FALLBACK_DESCRIPTION = "이미지 세부 묘사 추출에 실패했습니다.";
 
 const openai = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -45,17 +106,14 @@ type ReviewVisionDigest = {
     index: number;
     summary: string;
     keywords: string[];
-    mood: string;
   }>;
   keyPoints: string[];
-  moodLine: string;
   ragQuery: string;
 };
 
 type SingleVisionDigest = {
   summary: string;
   keywords: string[];
-  moodLine: string;
   ragQuery: string;
 };
 
@@ -70,6 +128,11 @@ type ReviewFinal = {
   captions: string[];
   outro: string;
   summary: string;
+};
+
+type RagReferences = {
+  fact: string;
+  tone: string;
 };
 
 function normalizeWhitespace(value: string): string {
@@ -123,6 +186,160 @@ function textOrEmpty(value: unknown, maxLength: number): string {
   return clipText(value, maxLength);
 }
 
+function textOrEmptyRaw(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return normalizeWhitespace(value);
+}
+
+function sanitizeStringArrayRaw(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((item) => (typeof item === "string" ? normalizeWhitespace(item) : ""))
+    .filter((item) => item !== "");
+}
+
+function normalizeKeywordList(values: string[] | undefined): string[] {
+  if (!values) return [];
+  return values
+    .map((value) => normalizeWhitespace(value))
+    .filter((value) => value !== "");
+}
+
+function hasAnyKeyword(text: string, keywords: string[]): boolean {
+  if (keywords.length === 0) return true;
+  const normalizedText = normalizeWhitespace(text);
+  return keywords.some((keyword) => normalizedText.includes(keyword));
+}
+
+function extractAnchorTokens(text: string): string[] {
+  const tokens = normalizeWhitespace(text)
+    .toLowerCase()
+    .match(/[가-힣a-z0-9]{2,}/g);
+  if (!tokens) return [];
+  return tokens.filter((token) => !CAPTION_ANCHOR_STOPWORDS.has(token));
+}
+
+function hasAnchorOverlap(text: string, anchor: string): boolean {
+  const anchorTokens = extractAnchorTokens(anchor);
+  if (anchorTokens.length === 0) return true;
+  const textTokens = new Set(extractAnchorTokens(text));
+  return anchorTokens.some((token) => textTokens.has(token));
+}
+
+function countSentences(value: string): number {
+  const normalized = normalizeWhitespace(value);
+  if (!normalized) return 0;
+  return normalized
+    .split(/[.!?]+|\n+/)
+    .map((part) => part.trim())
+    .filter((part) => part !== "").length;
+}
+
+function shouldRetryVisionDescription(description: string): boolean {
+  const normalized = normalizeWhitespace(description);
+  return (
+    normalized.length < MIN_VISION_DESCRIPTION_CHARS ||
+    countSentences(normalized) < MIN_VISION_DESCRIPTION_SENTENCES
+  );
+}
+
+function isShortDraftSection(
+  text: string,
+  minChars: number,
+  minSentences: number,
+): boolean {
+  const normalized = normalizeWhitespace(text);
+  if (!normalized) return true;
+  return (
+    normalized.length < minChars || countSentences(normalized) < minSentences
+  );
+}
+
+function shouldRetryReviewFinalDraft(
+  draft: ReviewFinal,
+  imageCount: number,
+  requiredKeywords: string[] = [],
+  visionAnchors: string[] = [],
+): boolean {
+  const isTooLong = (text: string, maxChars: number) =>
+    normalizeWhitespace(text).length > maxChars;
+
+  if (isShortDraftSection(draft.intro, MIN_REVIEW_EDGE_CHARS, MIN_REVIEW_EDGE_SENTENCES)) {
+    return true;
+  }
+  if (isTooLong(draft.intro, 1200)) {
+    return true;
+  }
+  if (isShortDraftSection(draft.outro, MIN_REVIEW_EDGE_CHARS, MIN_REVIEW_EDGE_SENTENCES)) {
+    return true;
+  }
+  if (isTooLong(draft.outro, 1200)) {
+    return true;
+  }
+  if (draft.captions.length < imageCount) {
+    return true;
+  }
+  const hasInvalidCaption = draft.captions
+    .slice(0, imageCount)
+    .some(
+      (caption) =>
+        isShortDraftSection(
+          caption,
+          MIN_REVIEW_CAPTION_CHARS,
+          MIN_REVIEW_CAPTION_SENTENCES,
+        ) || isTooLong(caption, CAPTION_CHAR_LIMIT),
+    );
+  if (hasInvalidCaption) {
+    return true;
+  }
+  if (requiredKeywords.length > 0) {
+    const fullText = joinOptionalParts([
+      draft.intro,
+      ...draft.captions.slice(0, imageCount),
+      draft.outro,
+    ]);
+    if (!hasAnyKeyword(fullText, requiredKeywords)) {
+      return true;
+    }
+  }
+  if (visionAnchors.length > 0) {
+    const hasUngroundedCaption = draft.captions
+      .slice(0, imageCount)
+      .some((caption, index) => !hasAnchorOverlap(caption, visionAnchors[index] ?? ""));
+    if (hasUngroundedCaption) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function shouldRefreshStyleProfile(styleUpdatedAt?: number): boolean {
+  if (!styleUpdatedAt) return true;
+  return Date.now() - styleUpdatedAt > STYLE_REFRESH_INTERVAL_MS;
+}
+
+async function requestSingleImageVisionDescription(
+  ai: OpenAI,
+  imageUrl: string,
+  prompt: string,
+): Promise<string> {
+  const response = await ai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: imageUrl } },
+          { type: "text", text: prompt },
+        ],
+      },
+    ],
+    max_tokens: VISION_MAX_TOKENS,
+  });
+
+  return getMessageText(response);
+}
+
 function buildStyleReference(
   styleProfile: string | undefined,
   recentPosts: PostLike[],
@@ -147,18 +364,58 @@ function buildStyleReference(
   return clipText(samples, STYLE_REFERENCE_CHAR_LIMIT);
 }
 
-function buildRagReference(posts: PostLike[]): string {
+function buildRagFactReference(posts: PostLike[]): string {
   const references = posts
     .slice(0, RAG_TOP_K)
     .map((post, i) => {
-      const summary = post.summary
-        ? clipText(post.summary, RAG_REFERENCE_ITEM_CHAR_LIMIT)
-        : clipText(post.content, RAG_REFERENCE_ITEM_CHAR_LIMIT);
-      return `[related ${i + 1}] ${summary}`;
+      const summaryPart = post.summary
+        ? clipText(post.summary, RAG_REFERENCE_SUMMARY_CHAR_LIMIT)
+        : "";
+      const contentPart = clipText(post.content, RAG_REFERENCE_CONTENT_CHAR_LIMIT);
+      const merged = summaryPart
+        ? `[summary] ${summaryPart}\n[context] ${contentPart}`
+        : `[context] ${contentPart}`;
+      return clipText(`[related ${i + 1}]\n${merged}`, RAG_REFERENCE_ITEM_CHAR_LIMIT);
     })
     .join("\n");
 
   return clipText(references, RAG_REFERENCE_CHAR_LIMIT);
+}
+
+function buildRagToneReference(posts: PostLike[]): string {
+  const tones = posts
+    .slice(0, RAG_TOP_K)
+    .map((post, i) => {
+      const source = post.content || post.summary || "";
+      const snippet = clipText(source, RAG_TONE_ITEM_CHAR_LIMIT);
+      return snippet ? `[tone ${i + 1}] ${snippet}` : "";
+    })
+    .filter((item) => item !== "")
+    .join("\n");
+
+  return clipText(tones, RAG_TONE_CHAR_LIMIT);
+}
+
+function interleavePosts(primary: PostLike[], secondary: PostLike[]): PostLike[] {
+  const merged: PostLike[] = [];
+  const max = Math.max(primary.length, secondary.length);
+  for (let i = 0; i < max; i += 1) {
+    if (primary[i]) merged.push(primary[i]);
+    if (secondary[i]) merged.push(secondary[i]);
+  }
+  return merged;
+}
+
+function buildRagReferences(
+  similarPosts: PostLike[],
+  fallbackPosts: PostLike[],
+): RagReferences {
+  const factSource = similarPosts.length > 0 ? similarPosts : fallbackPosts;
+  const toneSource = interleavePosts(similarPosts, fallbackPosts);
+  return {
+    fact: buildRagFactReference(factSource),
+    tone: buildRagToneReference(toneSource),
+  };
 }
 
 function joinOptionalParts(parts: Array<string | undefined>): string {
@@ -178,8 +435,11 @@ function normalizeCaptions(
     const primary = generated[index] ?? "";
     const backupOutline = outline[index] ?? "";
     const backupImage = imageFallbacks[index] ?? "";
-    const selected = primary || backupOutline || backupImage;
-    return clipText(selected, 320);
+    const selected =
+      primary && hasAnchorOverlap(primary, backupImage)
+        ? primary
+        : backupImage || backupOutline || primary;
+    return normalizeWhitespace(selected);
   });
 }
 
@@ -194,33 +454,36 @@ async function analyzeImages(
     const batchResults = await Promise.all(
       batch.map(async (url, batchIndex) => {
         try {
-          const response = await ai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-              {
-                role: "user",
-                content: [
-                  { type: "image_url", image_url: { url } },
-                  {
-                    type: "text",
-                    text: "Describe this image for blog writing. Focus on scene, mood, key objects, and useful details in 3-5 short sentences. Write in Korean.",
-                  },
-                ],
-              },
-            ],
-            max_tokens: REVIEW_VISION_MAX_TOKENS,
-          });
+          const firstDescription = await requestSingleImageVisionDescription(
+            ai,
+            url,
+            SINGLE_VISION_PROMPT,
+          );
+          const finalDescription = shouldRetryVisionDescription(
+            firstDescription,
+          )
+            ? await requestSingleImageVisionDescription(
+                ai,
+                url,
+                SINGLE_VISION_RETRY_PROMPT,
+              )
+            : firstDescription;
+          const description = clipText(
+            finalDescription,
+            IMAGE_DESCRIPTION_CHAR_LIMIT,
+          );
 
           return {
             index: start + batchIndex,
             url,
-            description: clipText(
-              getMessageText(response),
-              IMAGE_DESCRIPTION_CHAR_LIMIT,
-            ),
+            description: description || VISION_FALLBACK_DESCRIPTION,
           };
         } catch {
-          return { index: start + batchIndex, url, description: "" };
+          return {
+            index: start + batchIndex,
+            url,
+            description: VISION_FALLBACK_DESCRIPTION,
+          };
         }
       }),
     );
@@ -229,7 +492,7 @@ async function analyzeImages(
   }
 
   visionResults.sort((a, b) => a.index - b.index);
-  return visionResults.filter((item) => item.description !== "");
+  return visionResults;
 }
 
 async function summarizeReviewVision(
@@ -249,19 +512,20 @@ async function summarizeReviewVision(
       {
         role: "system",
         content:
-          'You compress vision notes for downstream RAG and writing. Return strict JSON with this shape: {"images":[{"index":1,"summary":"...","keywords":["..."],"mood":"..."}],"keyPoints":["..."],"moodLine":"...","ragQuery":"..."}. All textual values must be in Korean.',
+          'You compress vision notes for downstream RAG and writing. Return strict JSON with this shape: {"images":[{"index":1,"summary":"...","keywords":["..."]}],"keyPoints":["..."],"ragQuery":"..."}. All textual values must be in Korean.',
       },
       {
         role: "user",
         content:
           `Summarize the image notes below.\n` +
           `Rules:\n` +
-          `1) Keep each images[].summary to 1-2 sentences.\n` +
+          `1) Keep each images[].summary to 2-4 sentences with concrete details.\n` +
           `2) Keep images[].keywords to 3-5 short tokens.\n` +
           `3) keyPoints must contain 4-6 concise bullets.\n` +
           `4) ragQuery must be one compact paragraph for vector search.\n` +
           `5) Preserve chronology by image index.\n` +
-          `6) Every textual field must be Korean.\n\n` +
+          `6) Every textual field must be Korean.\n` +
+          `7) Use only information visible in the notes. Do not infer people, conversation, emotions, or atmosphere.\n\n` +
           `${visionPayload}`,
       },
     ],
@@ -274,10 +538,8 @@ async function summarizeReviewVision(
       index: item.index + 1,
       summary: clipText(item.description, IMAGE_SUMMARY_CHAR_LIMIT),
       keywords: [],
-      mood: "",
     })),
     keyPoints: [],
-    moodLine: "",
     ragQuery: clipText(
       visionResults.map((item) => item.description).join(" "),
       IMAGE_SUMMARY_BLOCK_CHAR_LIMIT,
@@ -295,37 +557,30 @@ async function summarizeReviewVision(
       const record = item as Record<string, unknown>;
       const summary = textOrEmpty(record.summary, IMAGE_SUMMARY_CHAR_LIMIT);
       return {
-        index:
-          typeof record.index === "number"
-            ? Math.max(1, Math.floor(record.index))
-            : idx + 1,
+        index: idx + 1,
         summary,
         keywords: sanitizeStringArray(record.keywords, 24).slice(0, 5),
-        mood: textOrEmpty(record.mood, 80),
       };
     })
     .filter((item): item is NonNullable<typeof item> => item !== null);
 
   const mergedImages = visionResults.map((item, idx) => {
-    const fromModel = images.find((digest) => digest.index === idx + 1);
+    const fromModel = images[idx];
     return {
       index: idx + 1,
       summary:
         fromModel?.summary ||
         clipText(item.description, IMAGE_SUMMARY_CHAR_LIMIT),
       keywords: fromModel?.keywords ?? [],
-      mood: fromModel?.mood ?? "",
     };
   });
 
   const keyPoints = sanitizeStringArray(parsed.keyPoints, 120).slice(0, 6);
-  const moodLine = textOrEmpty(parsed.moodLine, 160);
   const ragQuery = textOrEmpty(parsed.ragQuery, IMAGE_SUMMARY_BLOCK_CHAR_LIMIT);
 
   return {
     images: mergedImages,
     keyPoints: keyPoints.length > 0 ? keyPoints : fallback.keyPoints,
-    moodLine: moodLine || fallback.moodLine,
     ragQuery: ragQuery || fallback.ragQuery,
   };
 }
@@ -340,7 +595,7 @@ async function summarizeSingleVision(
       {
         role: "system",
         content:
-          'Return strict JSON for single-image compression: {"summary":"...","keywords":["..."],"moodLine":"...","ragQuery":"..."}. All textual values must be in Korean.',
+          'Return strict JSON for single-image compression: {"summary":"...","keywords":["..."],"ragQuery":"..."}. All textual values must be in Korean.',
       },
       {
         role: "user",
@@ -349,6 +604,7 @@ async function summarizeSingleVision(
           `summary must be 2-3 sentences.\n` +
           `keywords must contain 5-8 words.\n` +
           `ragQuery must be one compact paragraph.\n` +
+          `Use only visible facts from the note. Do not infer conversation, emotions, or atmosphere.\n` +
           `All textual values must be Korean.\n\n` +
           `${clipText(description, IMAGE_DESCRIPTION_CHAR_LIMIT)}`,
       },
@@ -364,7 +620,6 @@ async function summarizeSingleVision(
   return {
     summary: textOrEmpty(parsed.summary, 260) || clipText(description, 260),
     keywords: sanitizeStringArray(parsed.keywords, 24).slice(0, 8),
-    moodLine: textOrEmpty(parsed.moodLine, 120),
     ragQuery: textOrEmpty(parsed.ragQuery, 900) || clipText(description, 900),
   };
 }
@@ -373,8 +628,8 @@ async function buildReviewOutline(
   ai: OpenAI,
   input: {
     styleReference: string;
+    toneReference: string;
     imageDigest: string;
-    ragReference: string;
     imageCount: number;
     memo: string;
     keywords: string;
@@ -383,8 +638,8 @@ async function buildReviewOutline(
   const prompt = clipText(
     [
       `[style guide]\n${input.styleReference}`,
+      input.toneReference ? `[tone reference]\n${input.toneReference}` : "",
       `[image digest]\n${input.imageDigest}`,
-      input.ragReference ? `[related notes]\n${input.ragReference}` : "",
       input.memo ? `[memo]\n${input.memo}` : "",
       input.keywords ? `[keywords]\n${input.keywords}` : "",
       `Create an outline for ${input.imageCount} images.`,
@@ -408,10 +663,14 @@ async function buildReviewOutline(
           `${prompt}\n\n` +
           `Rules:\n` +
           `1) captionOutlines length must be exactly ${input.imageCount}.\n` +
-          `2) Each caption outline should be one concise sentence.\n` +
-          `3) Focus on flow and talking points only, not full prose.\n` +
+          `2) Each caption outline should include at least two visible key points (objects/text/signs/layout).\n` +
+          `3) Keep outline-level wording, but include concrete nouns and sensory cues.\n` +
           `4) Use the same language as the style guide.\n` +
-          `5) Output only Korean text.`,
+          `5) If tone reference exists, mimic sentence endings and rhythm (e.g. ~했어요, ~더라고요) without copying sentences.\n` +
+          `6) Output only Korean text.\n` +
+          `7) captionOutlines[i] must correspond to [image i] in the same order; never swap indices.\n` +
+          `8) Treat memo and keywords as highest-priority context. If related notes conflict, follow memo/keywords and image digest.\n` +
+          `9) Do not introduce entities not present in image digest or memo.`,
       },
     ],
     max_tokens: 1000,
@@ -422,7 +681,7 @@ async function buildReviewOutline(
     getMessageText(response),
     {},
   );
-  const outlines = sanitizeStringArray(parsed.captionOutlines, 180);
+  const outlines = sanitizeStringArray(parsed.captionOutlines, OUTLINE_ITEM_CHAR_LIMIT);
   return {
     introOutline: textOrEmpty(parsed.introOutline, 320),
     captionOutlines: outlines,
@@ -434,23 +693,51 @@ async function buildReviewFinal(
   ai: OpenAI,
   input: {
     styleReference: string;
+    toneReference: string;
     imageDigest: string;
-    ragReference: string;
+    ragFactReference: string;
     outline: ReviewOutline;
     imageCount: number;
     memo: string;
     keywords: string;
+    requiredKeywords?: string[];
+    retryForDetail?: boolean;
   },
 ): Promise<ReviewFinal> {
+  const requiredKeywords = normalizeKeywordList(input.requiredKeywords);
+  const requiredKeywordsBlock =
+    requiredKeywords.length > 0 ? requiredKeywords.join(", ") : "";
   const outlineText = JSON.stringify(input.outline);
+  const styleBlock = clipText(input.styleReference, FINAL_STYLE_BLOCK_CHAR_LIMIT);
+  const toneBlock = input.toneReference
+    ? clipText(input.toneReference, FINAL_TONE_BLOCK_CHAR_LIMIT)
+    : "";
+  const ragBlock = input.ragFactReference
+    ? clipText(input.ragFactReference, FINAL_RAG_BLOCK_CHAR_LIMIT)
+    : "";
+  const imageDigestBlock = clipText(
+    input.imageDigest,
+    FINAL_IMAGE_DIGEST_BLOCK_CHAR_LIMIT,
+  );
+  const outlineBlock = clipText(outlineText, FINAL_OUTLINE_BLOCK_CHAR_LIMIT);
+  const memoBlock = input.memo
+    ? clipText(input.memo, FINAL_MEMO_BLOCK_CHAR_LIMIT)
+    : "";
+  const keywordsBlock = input.keywords
+    ? clipText(input.keywords, FINAL_KEYWORDS_BLOCK_CHAR_LIMIT)
+    : "";
   const userPayload = clipText(
     [
-      `[style guide]\n${input.styleReference}`,
-      `[outline]\n${outlineText}`,
-      `[image digest]\n${input.imageDigest}`,
-      input.ragReference ? `[related notes]\n${input.ragReference}` : "",
-      input.memo ? `[memo]\n${input.memo}` : "",
-      input.keywords ? `[keywords]\n${input.keywords}` : "",
+      `[style guide]\n${styleBlock}`,
+      toneBlock ? `[tone reference]\n${toneBlock}` : "",
+      ragBlock ? `[related notes - intro/outro only]\n${ragBlock}` : "",
+      `[image digest]\n${imageDigestBlock}`,
+      `[outline]\n${outlineBlock}`,
+      memoBlock ? `[memo]\n${memoBlock}` : "",
+      keywordsBlock ? `[keywords]\n${keywordsBlock}` : "",
+      requiredKeywordsBlock
+        ? `[required keywords]\n${requiredKeywordsBlock}`
+        : "",
       `Write a review post for exactly ${input.imageCount} images.`,
     ]
       .filter((section) => section !== "")
@@ -473,12 +760,23 @@ async function buildReviewFinal(
           `Rules:\n` +
           `1) Follow the style guide closely.\n` +
           `2) captions length must be exactly ${input.imageCount}.\n` +
-          `3) Keep each caption to 1-2 sentences.\n` +
-          `4) intro/outro should be 2-3 sentences.\n` +
-          `5) summary should be 2 concise sentences.\n` +
+          `3) Keep each caption to 3-4 sentences with concrete visible details only (objects/text/layout).\n` +
+          `4) intro/outro should be 3-5 sentences each.\n` +
+          `5) summary should be 2-3 concise sentences.\n` +
           `6) Use the same language as the style guide and memo.\n` +
-          `7) Output only Korean text.\n` +
-          `8) No markdown.`,
+          `7) If tone reference is provided, follow its conversational endings and cadence (예: ~했어요, ~더라고요) without copying sentences.\n` +
+          `8) If related notes are provided, use them only in intro/outro; never use them to add caption facts.\n` +
+          `9) Output only Korean text.\n` +
+          `10) No markdown.\n` +
+          `11) captions[i] must describe [image i] in the same order; never reorder captions.\n` +
+          `12) Do not invent unseen facts. Avoid asserting conversation, emotions, or atmosphere unless clearly visible in the image or memo.\n` +
+          `13) Treat [memo] and [keywords] as highest priority. If related notes conflict, follow memo and visible image digest.\n` +
+          `14) If [required keywords] exists, include at least one of them exactly as written in the final text.\n` +
+          (input.retryForDetail
+            ? `15) Previous draft was too short/too long or missed required keywords. Adjust while keeping natural spoken tone.\n` +
+              `16) Every caption must be 3-4 sentences, roughly 140-${CAPTION_CHAR_LIMIT} Korean characters.\n` +
+              `17) Intro and outro must each be 3-5 sentences, up to 1200 Korean characters.\n`
+            : ""),
       },
     ],
     max_tokens: REVIEW_MAX_TOKENS,
@@ -490,9 +788,9 @@ async function buildReviewFinal(
     {},
   );
   return {
-    intro: textOrEmpty(parsed.intro, 1200),
-    captions: sanitizeStringArray(parsed.captions, 320),
-    outro: textOrEmpty(parsed.outro, 1200),
+    intro: textOrEmptyRaw(parsed.intro),
+    captions: sanitizeStringArrayRaw(parsed.captions),
+    outro: textOrEmptyRaw(parsed.outro),
     summary: textOrEmpty(parsed.summary, SUMMARY_CHAR_LIMIT),
   };
 }
@@ -514,36 +812,32 @@ export const createBlogFromImage = action({
     const ai = openai();
     const userId = user._id;
 
-    const visionResponse = await ai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "image_url", image_url: { url: args.imageUrl } },
-            {
-              type: "text",
-              text: "Describe this image for writing a personal blog post. Focus on mood, key scene details, and useful context in 3-5 short sentences. Write in Korean.",
-            },
-          ],
-        },
-      ],
-      max_tokens: VISION_MAX_TOKENS,
-    });
+    const firstVisionDescription = await requestSingleImageVisionDescription(
+      ai,
+      args.imageUrl,
+      SINGLE_VISION_PROMPT,
+    );
+    const finalVisionDescription = shouldRetryVisionDescription(
+      firstVisionDescription,
+    )
+      ? await requestSingleImageVisionDescription(
+          ai,
+          args.imageUrl,
+          SINGLE_VISION_RETRY_PROMPT,
+        )
+      : firstVisionDescription;
 
     const visionDescription = clipText(
-      getMessageText(visionResponse),
+      finalVisionDescription,
       IMAGE_DESCRIPTION_CHAR_LIMIT,
     );
     const visionDigest = await summarizeSingleVision(ai, visionDescription);
 
     const [recentPosts, embeddingRes] = await Promise.all([
-      !user.styleProfile
-        ? ctx.runQuery(internal.generateHelpers.getRecentPosts, {
-            userId,
-            limit: STYLE_REFERENCE_LIMIT,
-          })
-        : Promise.resolve([]),
+      ctx.runQuery(internal.generateHelpers.getRecentPosts, {
+        userId,
+        limit: STYLE_REFERENCE_LIMIT,
+      }),
       ai.embeddings.create({
         model: "text-embedding-3-small",
         input: clipText(visionDigest.ragQuery, 900),
@@ -569,7 +863,12 @@ export const createBlogFromImage = action({
       user.styleProfile,
       recentPosts as PostLike[],
     );
-    const ragReference = buildRagReference(similarPosts);
+    const ragRefs = buildRagReferences(
+      similarPosts,
+      recentPosts as PostLike[],
+    );
+    const ragFactReference = ragRefs.fact;
+    const ragToneReference = ragRefs.tone;
     const keywords = clipText(
       visionDigest.keywords.join(", "),
       KEYWORDS_CHAR_LIMIT,
@@ -581,17 +880,20 @@ export const createBlogFromImage = action({
         {
           role: "system",
           content:
-            'Return strict JSON only: {"content":"...","summary":"..."}.\nFollow style guide first, then use related notes as supporting context.\nUse the same language as the style guide and memo.\nAll textual values must be in Korean.',
+            'Return strict JSON only: {"content":"...","summary":"..."}.\nFollow style guide first, then use tone reference and related notes as supporting context.\nUse the same language as the style guide and memo.\nAll textual values must be in Korean.',
         },
         {
           role: "user",
           content: clipText(
             [
               `[style guide]\n${styleReference}`,
-              ragReference ? `[related notes]\n${ragReference}` : "",
+              ragToneReference ? `[tone reference]\n${ragToneReference}` : "",
+              ragFactReference
+                ? `[related notes]\n${ragFactReference}`
+                : "",
               `[image summary]\n${visionDigest.summary}`,
-              visionDigest.moodLine ? `[mood]\n${visionDigest.moodLine}` : "",
               keywords ? `[keywords]\n${keywords}` : "",
+              "tone reference가 있으면 말투(종결어미/호흡)만 차용하고 문장은 복사하지 마세요.",
               "Write one coherent blog post with a personal, natural tone.",
               "반드시 한국어로만 작성하세요.",
             ]
@@ -629,7 +931,7 @@ export const createBlogFromImage = action({
       },
     );
 
-    if (!user.styleProfile) {
+    if (shouldRefreshStyleProfile(user.styleUpdatedAt)) {
       const analyzeUserStyleAction = (
         internal as unknown as {
           generate?: { analyzeUserStyle?: Parameters<typeof ctx.runAction>[0] };
@@ -673,12 +975,10 @@ export const createBlogReview = action({
 
     const [visionResults, recentPosts] = await Promise.all([
       analyzeImages(ai, args.imageUrls),
-      !user.styleProfile
-        ? ctx.runQuery(internal.generateHelpers.getRecentPosts, {
-            userId,
-            limit: STYLE_REFERENCE_LIMIT,
-          })
-        : Promise.resolve([]),
+      ctx.runQuery(internal.generateHelpers.getRecentPosts, {
+        userId,
+        limit: STYLE_REFERENCE_LIMIT,
+      }),
     ]);
 
     if (visionResults.length === 0) {
@@ -697,9 +997,10 @@ export const createBlogReview = action({
     const keywords = args.keywords?.length
       ? clipText(args.keywords.join(", "), KEYWORDS_CHAR_LIMIT)
       : "";
+    const requiredKeywords = normalizeKeywordList(args.keywords);
 
     const ragQueryInput = clipText(
-      [visionDigest.ragQuery, memo, keywords]
+      [memo, keywords, visionDigest.ragQuery]
         .filter((part) => part !== "")
         .join("\n"),
       1200,
@@ -728,30 +1029,59 @@ export const createBlogReview = action({
       user.styleProfile,
       recentPosts as PostLike[],
     );
-    const ragReference = buildRagReference(similarPosts);
+    const ragRefs = buildRagReferences(
+      similarPosts,
+      recentPosts as PostLike[],
+    );
+    const ragFactReference = ragRefs.fact;
+    const ragToneReference = ragRefs.tone;
 
     const outline = await buildReviewOutline(ai, {
       styleReference,
+      toneReference: ragToneReference,
       imageDigest: imageDigestText,
-      ragReference,
       imageCount: visionResults.length,
       memo,
       keywords,
     });
 
-    const finalDraft = await buildReviewFinal(ai, {
+    const fallbackImageSummaries = visionResults.map(
+      (item, index) => visionDigest.images[index]?.summary || item.description,
+    );
+    const captionAnchors = visionResults.map(
+      (item, index) => `${item.description} ${fallbackImageSummaries[index] ?? ""}`,
+    );
+
+    const firstFinalDraft = await buildReviewFinal(ai, {
       styleReference,
+      toneReference: ragToneReference,
       imageDigest: imageDigestText,
-      ragReference,
+      ragFactReference,
       outline,
       imageCount: visionResults.length,
       memo,
       keywords,
+      requiredKeywords,
     });
-
-    const fallbackImageSummaries = visionDigest.images.map(
-      (item) => item.summary,
-    );
+    const finalDraft = shouldRetryReviewFinalDraft(
+      firstFinalDraft,
+      visionResults.length,
+      requiredKeywords,
+      captionAnchors,
+    )
+      ? await buildReviewFinal(ai, {
+          styleReference,
+          toneReference: ragToneReference,
+          imageDigest: imageDigestText,
+          ragFactReference,
+          outline,
+          imageCount: visionResults.length,
+          memo,
+          keywords,
+          requiredKeywords,
+          retryForDetail: true,
+        })
+      : firstFinalDraft;
     const captions = normalizeCaptions(
       visionResults.length,
       finalDraft.captions,
@@ -759,10 +1089,11 @@ export const createBlogReview = action({
       fallbackImageSummaries,
     );
 
+    const introFallback = clipText(visionDigest.images[0]?.summary ?? "", 220);
     const intro =
       finalDraft.intro ||
       outline.introOutline ||
-      visionDigest.moodLine ||
+      introFallback ||
       "오늘의 기록을 정리해 봅니다.";
     const outro =
       finalDraft.outro || outline.outroOutline || "이번 기록은 여기까지입니다.";
@@ -804,7 +1135,7 @@ export const createBlogReview = action({
       },
     );
 
-    if (!user.styleProfile) {
+    if (shouldRefreshStyleProfile(user.styleUpdatedAt)) {
       const analyzeUserStyleAction = (
         internal as unknown as {
           generate?: { analyzeUserStyle?: Parameters<typeof ctx.runAction>[0] };

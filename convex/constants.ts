@@ -12,7 +12,7 @@ export const BLOG_MAX_TOKENS = 1000;         // 단일 이미지 블로그 생�
 export const REVIEW_MAX_TOKENS = 2000;       // 리뷰 블로그 생성 (JSON)
 
 // RAG
-export const RAG_SEARCH_LIMIT = 3;
+export const RAG_SEARCH_LIMIT = 5;
 
 // 배치 처리
 export const BATCH_SIZE = 5;

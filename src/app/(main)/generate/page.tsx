@@ -209,7 +209,7 @@ function ResultView({
 
         {/* 이미지 + 캡션 */}
         {display.blocks.map((block, i) => (
-          <div key={block.url} className="space-y-3">
+          <div key={`${block.url}-${i}`} className="space-y-3">
             <img
               src={block.url}
               alt={`이미지 ${i + 1}`}
