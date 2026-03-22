@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as constants from "../constants.js";
 import type * as generate from "../generate.js";
 import type * as generateHelpers from "../generateHelpers.js";
 import type * as images from "../images.js";
@@ -21,6 +22,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  constants: typeof constants;
   generate: typeof generate;
   generateHelpers: typeof generateHelpers;
   images: typeof images;
