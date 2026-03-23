@@ -6,10 +6,13 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
 import ImageUploader from "@/components/image-uploader";
-import type { ResultData } from "@/types/post";
+import type { GenerationResult, ResultData } from "@/types/post";
 import { useResultEditor } from "@/hooks/useResultEditor";
-
-// ─── State & Action 타입 ────────────────────────────────────────────────────
+import {
+  REVIEW_MAX_IMAGE_COUNT,
+  REVIEW_MIN_IMAGE_COUNT,
+  SINGLE_IMAGE_COUNT,
+} from "../../../../convex/constants";
 
 type PageState =
   | { step: "upload"; imageUrls: string[]; allReady: boolean }
@@ -37,28 +40,23 @@ function reducer(state: PageState, action: Action): PageState {
         imageUrls: action.imageUrls,
         allReady: action.allReady,
       };
-
     case "START_GENERATING":
       if (state.step !== "upload") return state;
       return { step: "generating", imageCount: state.imageUrls.length };
-
     case "SET_RESULT":
       return { step: "result", result: action.result };
-
     case "RESET":
       return initialState;
-
     default:
       return state;
   }
 }
 
-// ─── 메인 페이지 ─────────────────────────────────────────────────────────────
-
 export default function GeneratePage() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [memo, setMemo] = useState("");
   const [keywordInput, setKeywordInput] = useState("");
+  const createBlogFromImage = useAction(api.generate.createBlogFromImage);
   const createBlogReview = useAction(api.generate.createBlogReview);
 
   const handleImagesChange = useCallback((urls: string[], ready: boolean) => {
@@ -67,41 +65,61 @@ export default function GeneratePage() {
 
   const handleGenerate = async () => {
     if (state.step !== "upload" || state.imageUrls.length === 0) return;
+
     dispatch({ type: "START_GENERATING" });
     try {
       const keywords = keywordInput
         .split(",")
         .map((k) => k.trim())
         .filter((k) => k.length > 0);
-      const result = await createBlogReview({
-        imageUrls: state.imageUrls,
-        memo: memo.trim() || undefined,
-        keywords: keywords.length > 0 ? keywords : undefined,
-      });
+
+      let result: GenerationResult;
+      if (state.imageUrls.length === SINGLE_IMAGE_COUNT) {
+        result = await createBlogFromImage({ imageUrl: state.imageUrls[0] });
+      } else {
+        result = await createBlogReview({
+          imageUrls: state.imageUrls,
+          memo: memo.trim() || undefined,
+          keywords: keywords.length > 0 ? keywords : undefined,
+        });
+      }
+
+      if (!result.ok) {
+        dispatch({ type: "RESET" });
+        toast.error(`[${result.failedStage}] ${result.message}`);
+        return;
+      }
+
       dispatch({ type: "SET_RESULT", result });
     } catch (e) {
       dispatch({ type: "RESET" });
-      toast.error(e instanceof Error ? e.message : "글 생성에 실패했습니다. 다시 시도해 주세요.");
+      toast.error(
+        e instanceof Error ? e.message : "글 생성에 실패했습니다. 다시 시도해 주세요."
+      );
     }
   };
 
-  // ── 업로드 단계
+  const canGenerate =
+    state.step === "upload" &&
+    state.allReady &&
+    state.imageUrls.length > 0 &&
+    state.imageUrls.length <= REVIEW_MAX_IMAGE_COUNT;
+
   if (state.step === "upload") {
     return (
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-          이미지로 리뷰 글 생성
+          이미지로 글 생성
         </h2>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          이미지를 업로드하면 AI가 내 문체로 블로그 리뷰 글을 작성합니다. (최대
-          20장)
+          이미지 1장이면 단일 글, {REVIEW_MIN_IMAGE_COUNT}~{REVIEW_MAX_IMAGE_COUNT}
+          장이면 리뷰 글을 생성합니다.
         </p>
         <ImageUploader onImagesChange={handleImagesChange} />
         <textarea
           value={memo}
           onChange={(e) => setMemo(e.target.value)}
-          placeholder="한 줄 메모를 추가해주세요. 더욱 실감나는 블로그 글이 작성됩니다.
-          예: 친구랑 갔는데 웨이팅 있었음. 시즌 메뉴 맛있었고"
+          placeholder="메모(선택). 리뷰 글 생성 시 반영됩니다."
           rows={2}
           className="w-full resize-none rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 placeholder-zinc-400 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder-zinc-500 dark:focus:border-zinc-500"
         />
@@ -109,13 +127,12 @@ export default function GeneratePage() {
           type="text"
           value={keywordInput}
           onChange={(e) => setKeywordInput(e.target.value)}
-          placeholder="SEO 키워드 (쉼표로 구분)
-          예: 성수 카페, 성수동 맛집, 서울 카페"
+          placeholder="키워드(쉼표 구분, 선택)"
           className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 placeholder-zinc-400 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder-zinc-500 dark:focus:border-zinc-500"
         />
         <button
           onClick={handleGenerate}
-          disabled={!state.allReady || state.imageUrls.length === 0}
+          disabled={!canGenerate}
           className="w-full rounded-lg bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
           {state.imageUrls.length > 0
@@ -126,22 +143,20 @@ export default function GeneratePage() {
     );
   }
 
-  // ── 생성 중 단계
   if (state.step === "generating") {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-600 dark:border-t-zinc-100" />
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          AI가 리뷰 글을 생성하고 있습니다...
+          AI가 글을 생성하고 있습니다...
         </p>
         <p className="text-xs text-zinc-400 dark:text-zinc-500">
-          이미지 {state.imageCount}장 분석 → 유사 글 검색 → 리뷰 글 작성 중
+          이미지 {state.imageCount}장 분석 → RAG → 초안 생성
         </p>
       </div>
     );
   }
 
-  // ── 결과 단계
   return (
     <ResultView
       result={state.result}
@@ -149,8 +164,6 @@ export default function GeneratePage() {
     />
   );
 }
-
-// ─── 결과 뷰 컴포넌트 ──────────────────────────────────────────────────────────
 
 function ResultView({
   result,
@@ -162,7 +175,6 @@ function ResultView({
   const router = useRouter();
   const {
     editMode,
-    display,
     draft,
     hasChanges,
     saving,
@@ -172,6 +184,7 @@ function ResultView({
     updateCaption,
     updateIntro,
     updateOutro,
+    updateContent,
     handleSave,
     handleCopy,
   } = useResultEditor(result);
@@ -190,64 +203,73 @@ function ResultView({
         </button>
       </div>
 
-      {/* 블로그 리뷰 미리보기 */}
       <div className="space-y-6 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        {/* 도입부 */}
-        {display.intro &&
-          (editMode ? (
+        {draft.kind === "single" ? (
+          editMode ? (
             <textarea
-              value={draft.intro}
-              onChange={(e) => updateIntro(e.target.value)}
-              className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
-              rows={3}
+              value={draft.content}
+              onChange={(e) => updateContent(e.target.value)}
+              className="w-full min-h-64 resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
             />
           ) : (
-            <p className="whitespace-pre-wrap px-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
-              {display.intro}
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+              {draft.content}
             </p>
-          ))}
-
-        {/* 이미지 + 캡션 */}
-        {display.blocks.map((block, i) => (
-          <div key={block.url} className="space-y-3">
-            <img
-              src={block.url}
-              alt={`이미지 ${i + 1}`}
-              className="w-full rounded-lg object-cover"
-              style={{ maxHeight: 400 }}
-            />
+          )
+        ) : (
+          <>
             {editMode ? (
               <textarea
-                value={draft.blocks[i]?.caption ?? ""}
-                onChange={(e) => updateCaption(i, e.target.value)}
+                value={draft.intro}
+                onChange={(e) => updateIntro(e.target.value)}
                 className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
                 rows={3}
               />
             ) : (
-              <p className="whitespace-pre-wrap px-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
-                {block.caption}
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+                {draft.intro}
               </p>
             )}
-          </div>
-        ))}
 
-        {/* 마무리 */}
-        {display.outro &&
-          (editMode ? (
-            <textarea
-              value={draft.outro}
-              onChange={(e) => updateOutro(e.target.value)}
-              className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
-              rows={3}
-            />
-          ) : (
-            <p className="whitespace-pre-wrap px-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
-              {display.outro}
-            </p>
-          ))}
+            {draft.blocks.map((block, i) => (
+              <div key={block.url} className="space-y-3">
+                <img
+                  src={block.url}
+                  alt={`이미지 ${i + 1}`}
+                  className="w-full rounded-lg object-cover"
+                  style={{ maxHeight: 400 }}
+                />
+                {editMode ? (
+                  <textarea
+                    value={draft.blocks[i]?.caption ?? ""}
+                    onChange={(e) => updateCaption(i, e.target.value)}
+                    className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
+                    rows={3}
+                  />
+                ) : (
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+                    {block.caption}
+                  </p>
+                )}
+              </div>
+            ))}
+
+            {editMode ? (
+              <textarea
+                value={draft.outro}
+                onChange={(e) => updateOutro(e.target.value)}
+                className="w-full resize-y rounded-lg border border-zinc-200 bg-transparent p-3 text-sm leading-relaxed text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
+                rows={3}
+              />
+            ) : (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+                {draft.outro}
+              </p>
+            )}
+          </>
+        )}
       </div>
 
-      {/* 액션 버튼 */}
       <div className="flex items-center gap-3">
         {editMode ? (
           <>
@@ -291,3 +313,4 @@ function ResultView({
     </div>
   );
 }
+

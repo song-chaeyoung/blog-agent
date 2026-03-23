@@ -13,6 +13,13 @@ export const REVIEW_MAX_TOKENS = 2000;       // 리뷰 블로그 생성 (JSON)
 
 // RAG
 export const RAG_SEARCH_LIMIT = 3;
+export const RAG_MIN_REFERENCES = 3;
 
 // 배치 처리
 export const BATCH_SIZE = 5;
+
+// 입력 제한
+export const SINGLE_IMAGE_COUNT = 1;
+export const REVIEW_MIN_IMAGE_COUNT = 2;
+export const REVIEW_MAX_IMAGE_COUNT = 20;
+export const MAX_KEYWORDS = 10;

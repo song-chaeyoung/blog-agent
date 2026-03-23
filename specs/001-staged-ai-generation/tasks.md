@@ -17,10 +17,10 @@
 
 **Purpose**: 테스트 러너와 검증 실행 기반을 추가합니다.
 
-- [ ] T001 테스트 스크립트와 의존성을 `package.json`에 추가한다
-- [ ] T002 [P] Vitest 실행 설정을 `vitest.config.ts`에 추가한다
-- [ ] T003 [P] 공통 테스트 초기화 코드를 `tests/setup.ts`에 추가한다
-- [ ] T004 [P] Convex/OpenAI 목 헬퍼를 `tests/helpers/generationTestUtils.ts`에 추가한다
+- [X] T001 테스트 스크립트와 의존성을 `package.json`에 추가한다
+- [X] T002 [P] Vitest 실행 설정을 `vitest.config.ts`에 추가한다
+- [X] T003 [P] 공통 테스트 초기화 코드를 `tests/setup.ts`에 추가한다
+- [X] T004 [P] Convex/OpenAI 목 헬퍼를 `tests/helpers/generationTestUtils.ts`에 추가한다
 
 ---
 
@@ -30,14 +30,14 @@
 
 **⚠️ CRITICAL**: 이 단계가 끝나기 전에는 어떤 사용자 스토리도 시작하지 않습니다.
 
-- [ ] T005 `summary` 계열 필드와 벡터 인덱스를 `convex/schema.ts`에 추가한다
-- [ ] T006 [P] 스테이지 결과/실패 유니온 타입을 `convex/generateTypes.ts`에 정의한다
-- [ ] T007 [P] 생성 스테이지 상수와 품질 기준을 `convex/constants.ts`에 정리한다
-- [ ] T008 [P] 생성 성공/실패 프런트 타입 골격을 `src/types/post.ts`에 정의한다
-- [ ] T009 요약 후보 조회와 사용자 해석 공통 쿼리를 `convex/generateHelpers.ts`에 정리한다
-- [ ] T010 스테이지별 내부 함수 골격을 `convex/generateStages.ts`에 추가한다
-- [ ] T011 [P] 생성 요청 preflight 입력 검증 유틸을 `convex/generateValidation.ts`에 구현한다
-- [ ] T012 [P] Clerk identity 해석과 `userId` 범위 가드를 `convex/generateAuth.ts`에 구현한다
+- [X] T005 `summary` 계열 필드와 벡터 인덱스를 `convex/schema.ts`에 추가한다
+- [X] T006 [P] 스테이지 결과/실패 유니온 타입을 `convex/generateTypes.ts`에 정의한다
+- [X] T007 [P] 생성 스테이지 상수와 품질 기준을 `convex/constants.ts`에 정리한다
+- [X] T008 [P] 생성 성공/실패 프런트 타입 골격을 `src/types/post.ts`에 정의한다
+- [X] T009 요약 후보 조회와 사용자 해석 공통 쿼리를 `convex/generateHelpers.ts`에 정리한다
+- [X] T010 스테이지별 내부 함수 골격을 `convex/generateStages.ts`에 추가한다
+- [X] T011 [P] 생성 요청 preflight 입력 검증 유틸을 `convex/generateValidation.ts`에 구현한다
+- [X] T012 [P] Clerk identity 해석과 `userId` 범위 가드를 `convex/generateAuth.ts`에 구현한다
 
 **Checkpoint**: 공통 스키마와 타입이 준비되어 사용자 스토리 구현을 시작할 수 있습니다.
 
@@ -53,18 +53,18 @@
 
 > **NOTE**: 이 테스트들은 구현 전에 먼저 작성하고, 초기에는 실패해야 합니다.
 
-- [ ] T013 [P] [US1] 단일/다중 생성 성공 응답 계약 테스트를 `tests/contract/generation-success.contract.test.ts`에 작성한다
-- [ ] T014 [P] [US1] `summary` 기반 새 글 생성 통합 테스트를 `tests/integration/generation-success.integration.test.ts`에 작성한다
+- [X] T013 [P] [US1] 단일/다중 생성 성공 응답 계약 테스트를 `tests/contract/generation-success.contract.test.ts`에 작성한다
+- [X] T014 [P] [US1] `summary` 기반 새 글 생성 통합 테스트를 `tests/integration/generation-success.integration.test.ts`에 작성한다
 
 ### Implementation for User Story 1
 
-- [ ] T015 [P] [US1] 이미지 분석 스테이지를 `convex/generateStages.ts`에 구현한다
-- [ ] T016 [P] [US1] `summary` 전용 RAG 조회 로직과 “최종 참조 기본 3개 이상(테스트로 3개 이상 상향 가능)” 기준을 `convex/generateRag.ts`에 구현한다
-- [ ] T017 [P] [US1] 최종 초안 합성 스테이지를 `convex/generateDraft.ts`에 구현한다
-- [ ] T018 [US1] `createBlogFromImage`와 `createBlogReview`가 `internalAction`/`internalQuery`/`internalMutation` 스테이지를 오케스트레이션하도록 `convex/generate.ts`에 리팩터링한다
-- [ ] T019 [US1] 생성 결과 저장 헬퍼를 `convex/generateHelpers.ts`에 맞게 갱신한다
-- [ ] T020 [US1] `/generate` 화면에서 이미지 1장은 단일 생성, 2~20장은 리뷰 생성으로 분기하도록 `src/app/(main)/generate/page.tsx`에 반영한다
-- [ ] T021 [US1] 성공 응답 기반 편집 상태 관리를 `src/hooks/useResultEditor.ts`에 반영한다
+- [X] T015 [P] [US1] 이미지 분석 스테이지를 `convex/generateStages.ts`에 구현한다
+- [X] T016 [P] [US1] `summary` 전용 RAG 조회 로직과 “최종 참조 기본 3개 이상(테스트로 3개 이상 상향 가능)” 기준을 `convex/generateRag.ts`에 구현한다
+- [X] T017 [P] [US1] 최종 초안 합성 스테이지를 `convex/generateDraft.ts`에 구현한다
+- [X] T018 [US1] `createBlogFromImage`와 `createBlogReview`가 `internalAction`/`internalQuery`/`internalMutation` 스테이지를 오케스트레이션하도록 `convex/generate.ts`에 리팩터링한다
+- [X] T019 [US1] 생성 결과 저장 헬퍼를 `convex/generateHelpers.ts`에 맞게 갱신한다
+- [X] T020 [US1] `/generate` 화면에서 이미지 1장은 단일 생성, 2~20장은 리뷰 생성으로 분기하도록 `src/app/(main)/generate/page.tsx`에 반영한다
+- [X] T021 [US1] 성공 응답 기반 편집 상태 관리를 `src/hooks/useResultEditor.ts`에 반영한다
 
 **Checkpoint**: User Story 1이 끝나면 이미지 기반 생성 결과를 독립적으로 성공 검증할 수 있어야 합니다.
 
@@ -78,16 +78,16 @@
 
 ### Tests for User Story 2 (MANDATORY) ⚠️
 
-- [ ] T022 [P] [US2] 단계 실패 응답 계약 테스트를 `tests/contract/generation-failure.contract.test.ts`에 작성한다
-- [ ] T023 [P] [US2] 조기 중단 동작 통합 테스트를 `tests/integration/generation-failure.integration.test.ts`에 작성한다
+- [X] T022 [P] [US2] 단계 실패 응답 계약 테스트를 `tests/contract/generation-failure.contract.test.ts`에 작성한다
+- [X] T023 [P] [US2] 조기 중단 동작 통합 테스트를 `tests/integration/generation-failure.integration.test.ts`에 작성한다
 
 ### Implementation for User Story 2
 
-- [ ] T024 [P] [US2] 실패 응답 팩토리와 `failedStage`/`code`/`retryable` 매핑을 `convex/generateTypes.ts`에 보강한다
-- [ ] T025 [P] [US2] 빈 응답, 파싱 실패, 다중 이미지 부분 실패, 입력 검증 실패 가드를 `convex/generateStages.ts`와 `convex/generateValidation.ts`에 구현한다
-- [ ] T026 [US2] 스테이지 실패 즉시 반환, 서버 내부 자동 재시도 금지, 실패 요청 중간 산출물 재사용 금지 로직을 `convex/generate.ts`에 반영한다
-- [ ] T027 [US2] 단계명 기반 실패 표시 UI를 `src/app/(main)/generate/page.tsx`에 구현한다
-- [ ] T028 [US2] 실패 유니온 분기를 반영한 결과 타입을 `src/types/post.ts`에 확정한다
+- [X] T024 [P] [US2] 실패 응답 팩토리와 `failedStage`/`code`/`retryable` 매핑을 `convex/generateTypes.ts`에 보강한다
+- [X] T025 [P] [US2] 빈 응답, 파싱 실패, 다중 이미지 부분 실패, 입력 검증 실패 가드를 `convex/generateStages.ts`와 `convex/generateValidation.ts`에 구현한다
+- [X] T026 [US2] 스테이지 실패 즉시 반환, 서버 내부 자동 재시도 금지, 실패 요청 중간 산출물 재사용 금지 로직을 `convex/generate.ts`에 반영한다
+- [X] T027 [US2] 단계명 기반 실패 표시 UI를 `src/app/(main)/generate/page.tsx`에 구현한다
+- [X] T028 [US2] 실패 유니온 분기를 반영한 결과 타입을 `src/types/post.ts`에 확정한다
 
 **Checkpoint**: User Story 2가 끝나면 실패 요청이 어느 단계에서 멈췄는지 사용자와 개발자가 모두 확인할 수 있어야 합니다.
 
@@ -101,16 +101,16 @@
 
 ### Tests for User Story 3 (MANDATORY) ⚠️
 
-- [ ] T029 [P] [US3] `summary` 상태 전이 계약 테스트를 `tests/contract/post-summary.contract.test.ts`에 작성한다
-- [ ] T030 [P] [US3] 저장/수정 후 `summary` 비동기 갱신 통합 테스트를 `tests/integration/post-summary.integration.test.ts`에 작성한다
+- [X] T029 [P] [US3] `summary` 상태 전이 계약 테스트를 `tests/contract/post-summary.contract.test.ts`에 작성한다
+- [X] T030 [P] [US3] 저장/수정 후 `summary` 비동기 갱신 통합 테스트를 `tests/integration/post-summary.integration.test.ts`에 작성한다
 
 ### Implementation for User Story 3
 
-- [ ] T031 [P] [US3] 자동 일괄 배치 없이 수동 `summary` 생성/재시도/backfill mutation을 `convex/postSummaries.ts`에 구현한다
-- [ ] T032 [US3] 저장/수정 시 `summary` 작업 예약을 `convex/posts.ts`에 반영한다
-- [ ] T033 [P] [US3] `summary` 없는 게시글 제외 및 `embedding`(summary 기반) 검색을 `convex/generateRag.ts`에 반영한다
-- [ ] T034 [US3] 게시글 조회/편집 시 `summary` 상태 노출을 `convex/posts.ts`에 반영한다
-- [ ] T035 [US3] 편집 후 `summary` 재생성 흐름을 `src/hooks/usePostEditor.ts`에 반영한다
+- [X] T031 [P] [US3] 자동 일괄 배치 없이 수동 `summary` 생성/재시도/backfill mutation을 `convex/postSummaries.ts`에 구현한다
+- [X] T032 [US3] 저장/수정 시 `summary` 작업 예약을 `convex/posts.ts`에 반영한다
+- [X] T033 [P] [US3] `summary` 없는 게시글 제외 및 `embedding`(summary 기반) 검색을 `convex/generateRag.ts`에 반영한다
+- [X] T034 [US3] 게시글 조회/편집 시 `summary` 상태 노출을 `convex/posts.ts`에 반영한다
+- [X] T035 [US3] 편집 후 `summary` 재생성 흐름을 `src/hooks/usePostEditor.ts`에 반영한다
 
 **Checkpoint**: User Story 3이 끝나면 원문 기반 재사용이 아니라 `summary` 기반 재사용 경로가 완성되어야 합니다.
 
@@ -120,10 +120,10 @@
 
 **Purpose**: 전 스토리에 걸친 마무리와 검증을 수행합니다.
 
-- [ ] T036 [P] 빠른 검증 절차, 단일/다중 이미지 시나리오, 10건 블라인드 비교 절차를 `specs/001-staged-ai-generation/quickstart.md`에 최종 반영한다
-- [ ] T037 [P] 상수/스키마/타입 동기화 최종 점검을 `convex/schema.ts`에 반영한다
-- [ ] T038 전역 생성 상수와 임계값 정리를 `convex/constants.ts`에 마무리한다
-- [ ] T039 `bun run lint` 결과를 확인하고 필요한 정리를 `package.json`에 반영한다
+- [X] T036 [P] 빠른 검증 절차, 단일/다중 이미지 시나리오, 10건 블라인드 비교 절차를 `specs/001-staged-ai-generation/quickstart.md`에 최종 반영한다
+- [X] T037 [P] 상수/스키마/타입 동기화 최종 점검을 `convex/schema.ts`에 반영한다
+- [X] T038 전역 생성 상수와 임계값 정리를 `convex/constants.ts`에 마무리한다
+- [X] T039 `bun run lint` 결과를 확인하고 필요한 정리를 `package.json`에 반영한다
 
 ---
 

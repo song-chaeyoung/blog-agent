@@ -1,9 +1,4 @@
-import type { Id } from "../../convex/_generated/dataModel";
-
-export type ImageBlock = {
-  url: string;
-  caption: string;
-};
+import type { Id } from "./_generated/dataModel";
 
 export type StageName =
   | "summary-preparation"
@@ -25,7 +20,7 @@ export type GenerationFailure = {
   retryable: boolean;
 };
 
-export type SingleResultData = {
+export type SingleGenerationSuccess = {
   ok: true;
   stage: "completed";
   mode: "single";
@@ -34,18 +29,30 @@ export type SingleResultData = {
   references: ReferenceSummary[];
 };
 
-export type ReviewResultData = {
+export type ReviewGenerationSuccess = {
   ok: true;
   stage: "completed";
   mode: "review";
   postId: Id<"posts">;
   content: string;
-  imageBlocks: ImageBlock[];
   intro: string;
   outro: string;
+  imageBlocks: Array<{ url: string; caption: string }>;
   references: ReferenceSummary[];
 };
 
-export type ResultData = SingleResultData | ReviewResultData;
-export type GenerationResult = ResultData | GenerationFailure;
+export type GenerationSuccess =
+  | SingleGenerationSuccess
+  | ReviewGenerationSuccess;
+
+export type GenerationResult = GenerationSuccess | GenerationFailure;
+
+export function fail(
+  failedStage: StageName,
+  code: string,
+  message: string,
+  retryable: boolean
+): GenerationFailure {
+  return { ok: false, failedStage, code, message, retryable };
+}
 

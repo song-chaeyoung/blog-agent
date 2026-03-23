@@ -29,6 +29,30 @@ export const getPostsByIds = internalQuery({
   },
 });
 
+/** summary 준비 상태인 후보 조회 */
+export const getSummaryCandidates = internalQuery({
+  args: { userId: v.id("users"), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const posts = await ctx.db
+      .query("posts")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("userId"), args.userId),
+          q.eq(q.field("summaryStatus"), "ready"),
+        ),
+      )
+      .take(args.limit ?? 50);
+
+    return posts
+      .filter((post) => post.summary && post.embedding)
+      .map((post) => ({
+        postId: post._id,
+        summary: post.summary!,
+        embedding: post.embedding!,
+      }));
+  },
+});
+
 /** 생성된 글 저장 */
 export const saveGeneratedPost = internalMutation({
   args: {
@@ -36,11 +60,21 @@ export const saveGeneratedPost = internalMutation({
     content: v.string(),
     imageUrl: v.string(),
     embedding: v.array(v.float64()),
+    references: v.array(
+      v.object({
+        postId: v.id("posts"),
+        summary: v.string(),
+        score: v.number(),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("posts", {
       userId: args.userId,
       content: args.content,
+      summary: args.content,
+      summaryStatus: "ready",
+      summaryUpdatedAt: Date.now(),
       imageUrl: args.imageUrl,
       embedding: args.embedding,
     });
@@ -61,11 +95,21 @@ export const saveGeneratedReviewPost = internalMutation({
     intro: v.string(),
     outro: v.string(),
     embedding: v.array(v.float64()),
+    references: v.array(
+      v.object({
+        postId: v.id("posts"),
+        summary: v.string(),
+        score: v.number(),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("posts", {
       userId: args.userId,
       content: args.content,
+      summary: args.content,
+      summaryStatus: "ready",
+      summaryUpdatedAt: Date.now(),
       imageBlocks: args.imageBlocks,
       intro: args.intro,
       outro: args.outro,

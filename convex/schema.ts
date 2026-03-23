@@ -13,6 +13,12 @@ export default defineSchema({
   posts: defineTable({
     userId: v.id("users"),
     content: v.string(),
+    summary: v.optional(v.string()),
+    summaryStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("ready"), v.literal("failed"))
+    ),
+    summaryError: v.optional(v.string()),
+    summaryUpdatedAt: v.optional(v.number()),
     imageUrl: v.optional(v.string()),
     imageBlocks: v.optional(
       v.array(
