@@ -20,6 +20,9 @@ type GenerationFailure = {
 };
 ```
 
+- 서버는 실패 스테이지에 대해 내부 자동 재시도를 수행하지 않는다.
+- `retryable = true`는 클라이언트가 동일 요청을 다시 시도할 수 있음을 뜻하고, `retryable = false`는 입력/계약 위반 등 비재시도성 실패를 뜻한다.
+
 ## 1. Public Convex Contracts
 
 ### `api.generate.createBlogFromImage`
@@ -33,6 +36,11 @@ type GenerationFailure = {
   imageUrl: string;
 }
 ```
+
+**Preconditions**
+
+- `/generate`에서 이미지 1장만 선택된 경우에만 호출한다.
+- `imageUrl`은 trim 후 비어 있으면 안 된다.
 
 **Success Response**
 
@@ -69,6 +77,13 @@ GenerationFailure
   keywords?: string[];
 }
 ```
+
+**Preconditions**
+
+- `/generate`에서 이미지가 2~20장 선택된 경우에만 호출한다.
+- `imageUrls`의 각 항목은 trim 후 비어 있으면 안 된다.
+- `memo`는 trim 후 빈 문자열이면 제거한다.
+- `keywords`는 trim 후 빈 값을 제거하고 최대 10개까지만 허용한다.
 
 **Success Response**
 
@@ -168,7 +183,7 @@ void
 {
   ok: true;
   summary: string;
-  summaryEmbedding: number[];
+  embedding: number[];
   updatedAt: number;
 }
 ```
@@ -203,7 +218,7 @@ void
     availableSummaries: Array<{
       postId: Id<"posts">;
       summary: string;
-      summaryEmbedding: number[];
+      embedding: number[];
     }>;
   };
 }
@@ -282,7 +297,7 @@ void
 **실패 조건**
 
 - 참조 가능한 `summary`를 찾지 못함
-- 관련성 기준 미달
+- 최종 선택된 참고 요약이 기본 임계값 3개 미만
 - JSON/형식 파싱 실패
 
 ### `internal.generate.composeDraft`

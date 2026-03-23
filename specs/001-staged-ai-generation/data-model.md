@@ -33,7 +33,7 @@
 | `userId` | `Id<"users">` | 글 소유 사용자 |
 | `content` | `string` | 최종 저장 본문 |
 | `summary` | `string?` | RAG와 문체 참고에 사용하는 축약 요약 |
-| `summaryEmbedding` | `float64[]?` | `summary` 기반 검색 벡터 |
+| `embedding` | `float64[]?` | `summary` 기반 검색 벡터 |
 | `summaryStatus` | `"pending" \| "ready" \| "failed"` | 요약 생성 상태 |
 | `summaryError` | `string?` | 마지막 요약 생성 실패 사유 |
 | `summaryUpdatedAt` | `number?` | 요약 최신화 시각(ms epoch) |
@@ -44,12 +44,12 @@
 
 **인덱스 / 벡터 인덱스**
 
-- `by_summary_embedding(summaryEmbedding)` + `filterFields: ["userId"]`
+- `by_embedding(embedding)` + `filterFields: ["userId"]`
 - 필요 시 관리성 강화를 위해 `by_user_summary_status(userId, summaryStatus)` 일반 인덱스 추가
 
 **설계 근거**
 
-- 기존 `embedding` 필드는 원문 기반 검색을 유도하므로 `summaryEmbedding`으로 명확히 분리한다.
+- 기존 `embedding` 필드 이름은 유지하되, 의미를 원문 기반 벡터에서 `summary` 기반 벡터로 재정의한다.
 - `summaryStatus`와 `summaryError`는 요약 백그라운드 작업의 성공/실패를 사용자가 볼 수 있는 형태로 남기기 위한 최소 상태다.
 
 ## 런타임 계약 엔티티
@@ -99,7 +99,7 @@
 | `stage` | `"summary-preparation" \| "image-analysis" \| "rag-context" \| "final-draft"` | 실행 단계 |
 | `code` | `string?` | 실패 코드 |
 | `message` | `string` | 사용자에게 보여줄 메시지 |
-| `retryable` | `boolean` | 재시도 가능 여부 |
+| `retryable` | `boolean` | 클라이언트 재요청 가능 여부 (`true`여도 서버 내부 자동 재시도는 수행하지 않음) |
 | `data` | `unknown` | 성공 시 단계 산출물 |
 
 ## 관계
@@ -138,10 +138,11 @@ requested
 
 ## 검증 규칙
 
-- `summaryStatus = "ready"`이면 `summary`와 `summaryEmbedding`이 모두 존재해야 한다.
+- `summaryStatus = "ready"`이면 `summary`와 `embedding`이 모두 존재해야 한다.
 - `summaryStatus = "failed"`이면 `summaryError`가 비어 있으면 안 된다.
 - 다중 이미지 요청은 입력 배열의 모든 항목이 성공적으로 분석되어야 다음 단계로 넘어간다.
 - `summary`가 없는 게시글은 RAG 참조 후보에서 제외된다.
+- `rag-context` 성공 결과는 최종 참조 요약이 기본 임계값 3개 이상이어야 한다(임계값은 테스트 결과에 따라 3개 이상 상향 가능).
 - 벡터 검색은 항상 `userId` 필터를 포함해야 한다.
 
 ## 마이그레이션 / 백필 전략
