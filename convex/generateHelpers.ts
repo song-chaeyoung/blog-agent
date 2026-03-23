@@ -60,12 +60,14 @@ export const saveGeneratedPost = internalMutation({
     content: v.string(),
     imageUrl: v.string(),
     embedding: v.array(v.float64()),
-    references: v.array(
-      v.object({
-        postId: v.id("posts"),
-        summary: v.string(),
-        score: v.number(),
-      }),
+    references: v.optional(
+      v.array(
+        v.object({
+          postId: v.id("posts"),
+          summary: v.string(),
+          score: v.number(),
+        }),
+      ),
     ),
   },
   handler: async (ctx, args) => {
@@ -86,6 +88,7 @@ export const saveGeneratedReviewPost = internalMutation({
   args: {
     userId: v.id("users"),
     content: v.string(),
+    summary: v.optional(v.string()),
     imageBlocks: v.array(
       v.object({
         url: v.string(),
@@ -95,12 +98,14 @@ export const saveGeneratedReviewPost = internalMutation({
     intro: v.string(),
     outro: v.string(),
     embedding: v.array(v.float64()),
-    references: v.array(
-      v.object({
-        postId: v.id("posts"),
-        summary: v.string(),
-        score: v.number(),
-      }),
+    references: v.optional(
+      v.array(
+        v.object({
+          postId: v.id("posts"),
+          summary: v.string(),
+          score: v.number(),
+        }),
+      ),
     ),
   },
   handler: async (ctx, args) => {

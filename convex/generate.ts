@@ -66,7 +66,7 @@ export const createBlogFromImage = action({
       content: draft.content,
       imageUrl: validated.imageUrl,
       embedding: postEmbedding,
-      references: rag.references,
+      references: rag.references ?? [],
     });
 
     return {
@@ -75,7 +75,7 @@ export const createBlogFromImage = action({
       mode: "single",
       postId,
       content: draft.content,
-      references: rag.references,
+      references: rag.references ?? [],
     };
   },
 });
@@ -139,7 +139,7 @@ export const createBlogReview = action({
         intro: draft.intro,
         outro: draft.outro,
         embedding: postEmbedding,
-        references: rag.references,
+        references: rag.references ?? [],
       }
     );
 
@@ -152,8 +152,7 @@ export const createBlogReview = action({
       intro: draft.intro,
       outro: draft.outro,
       imageBlocks: draft.imageBlocks,
-      references: rag.references,
+      references: rag.references ?? [],
     };
   },
 });
-
