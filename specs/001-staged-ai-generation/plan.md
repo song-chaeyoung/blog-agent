@@ -18,7 +18,7 @@
 **Target Platform**: 웹 브라우저용 Next.js 앱 + Convex 서버리스 런타임  
 **Project Type**: 웹 애플리케이션  
 **Performance Goals**: 게시글 저장/수정 경로는 요약 생성 작업을 비동기로 넘겨 사용자 대기 시간을 최소화하고, 생성 요청은 한 번의 실행 안에서 성공 결과 또는 실패 단계 정보를 반드시 반환한다.  
-**Constraints**: `summary` 없는 게시글은 생성 참조 후보에서 제외, 각 단계는 별도 `internalAction`/`internalQuery`/`internalMutation` 단위로 분리, 단계 실패 시 서버 내부 자동 재시도 없이 즉시 중단하고 실패 응답에 `retryable`을 포함, 상위 RAG는 최종 참고 요약 기본 3개 이상을 요구(테스트로 3개 이상 상향 가능), 다른 사용자의 데이터 혼입 금지, 최종 글은 한국어 일반 줄글로 반환, 단일 생성은 이미지 1장만 허용하고 리뷰 생성은 2~20장만 허용  
+**Constraints**: `summary` 없는 게시글은 생성 참조 후보에서 제외, 각 단계는 별도 `internalAction`/`internalQuery`/`internalMutation` 단위로 분리, 단계 실패 시 서버 내부 자동 재시도 없이 즉시 중단하고 실패 응답에 `retryable`을 포함, 상위 RAG는 최종 참고 요약 기본 3개 이상을 요구(테스트로 3개 이상 상향 가능), 다른 사용자의 데이터 혼입 금지, 최종 글은 한국어 일반 줄글로 반환, 단일 생성은 이미지 1장만 허용하고 리뷰 생성은 2~20장만 허용, 최종 결과에는 분석 템플릿 라벨(`상황/분위기/감정`)과 markdown 목록/헤더가 노출되면 안 됨, 길이 정책(단일 1200자, 리뷰 intro/outro 280자, caption 320자)을 초과하면 실패 처리해야 함, 사용자별 `styleProfile(openingMode/fixedOpening/openerPatterns)`을 `userId` 단위로 관리해야 함  
 **Scale/Scope**: 인증 사용자 개인용 블로그 생성 기능, `/generate` 한 화면에서 단일 이미지 글 생성과 2~20장 리뷰 글 생성을 함께 지원, 과거 글 요약 기반 RAG, 기존 `convex/*.ts`와 `src/app/(main)` 구조 유지
 
 ## Constitution Check
@@ -97,10 +97,14 @@ convex/
 ### Backend / Convex
 
 - `posts` 테이블에 `summary`, `embedding`(summary 기반 벡터), `summaryStatus`, `summaryError`, `summaryUpdatedAt` 필드를 추가한다.
+- `styleProfiles` 테이블을 추가해 사용자별 문체 프로필(`openingMode`, `fixedOpening`, `openerPatterns`, 신뢰도 메타)을 저장한다.
 - `embedding` 필드의 의미를 원문 기반에서 `summary` 기반으로 재정의하고, 벡터 검색 필터는 계속 `userId`를 강제한다.
 - 게시글 생성/수정 mutation은 저장 후 `generateSummary` internal action을 스케줄링한다.
-- `convex/generate.ts`는 공개 액션인 `createBlogFromImage`와 `createBlogReview`를 유지하되, 실제 단계는 `validateRequest -> resolveUserContext -> summaryPreparation -> imageAnalysis -> ragContext -> finalDraft` 순서의 내부 `internalAction`/`internalQuery`/`internalMutation` 호출로 오케스트레이션한다.
+- `convex/generate.ts`는 공개 액션인 `createBlogFromImage`와 `createBlogReview`를 유지하되, 실제 단계는 `validateRequest -> resolveUserContext -> summaryPreparation -> styleProfilePreparation -> imageAnalysis -> ragContext -> finalDraft` 순서의 내부 `internalAction`/`internalQuery`/`internalMutation` 호출로 오케스트레이션한다.
 - 각 스테이지는 성공 시 구조화된 결과를 반환하고, 실패 시 해당 스테이지 이름과 사용자 노출 가능한 사유, `retryable`을 포함한 실패 객체를 반환한다.
+- `final-draft` 단계는 결과 텍스트가 분석 템플릿 형태인지(라벨/목록/헤더) 검증하고, 위반 시 저장 전에 실패 처리한다.
+- `final-draft` 단계는 단일/리뷰별 길이 상한을 검증하고, 초과 시 `DRAFT_TOO_LONG` 실패를 반환한다.
+- `final-draft` 단계는 `openingMode`를 해석해 도입구 반영 정책을 적용하고, `strict` 미충족 시 `OPENING_CONSTRAINT_VIOLATION` 실패를 반환한다.
 
 ### Frontend / Next.js
 
@@ -121,6 +125,7 @@ convex/
 - [x] 데이터 격리: `summary` 조회와 벡터 검색 모두 사용자 범위 필터를 유지한다.
 - [x] 입력 검증: 이미지 개수(1장 또는 2~20장), URL, `memo` trim, `keywords` 정규화/최대 10개 제한을 스테이지 시작 전에 검증한다.
 - [x] AI 계약: 각 단계의 구조화 출력과 파싱 실패 처리 규칙을 계약 문서로 명시했다.
+- [x] 스타일 계약: 사용자별 `styleProfile`과 `openingMode`에 따른 반영/실패 규칙을 계약 문서에 명시한다.
 - [x] 스키마 동기화: 스키마, 인덱스, 저장 mutation, 생성 action, 프런트 타입 변경이 한 세트로 묶였다.
 - [x] 검증 계획: 빠른 실행 절차, 단일/다중 이미지 검증, 10건 블라인드 비교 평가 절차를 별도 문서로 제공한다.
 

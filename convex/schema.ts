@@ -10,6 +10,28 @@ export default defineSchema({
     provider: v.optional(v.string()),
   }).index("by_token", ["tokenIdentifier"]),
 
+  styleProfiles: defineTable({
+    userId: v.id("users"),
+    openingMode: v.union(
+      v.literal("off"),
+      v.literal("preferred"),
+      v.literal("strict")
+    ),
+    fixedOpening: v.optional(v.string()),
+    openerPatterns: v.array(
+      v.object({
+        text: v.string(),
+        repeatRate: v.number(),
+        occurrences: v.number(),
+        sampleSize: v.number(),
+        lastSeenAt: v.number(),
+      })
+    ),
+    toneKeywords: v.optional(v.array(v.string())),
+    confidence: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
   posts: defineTable({
     userId: v.id("users"),
     content: v.string(),

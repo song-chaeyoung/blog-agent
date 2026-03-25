@@ -127,6 +127,41 @@
 
 ---
 
+## Phase 7: Hotfix - 분석 템플릿 노출 차단
+
+**Purpose**: 생성 결과에 분석용 텍스트 템플릿(`상황/분위기/감정`, markdown 목록/헤더)이 노출되는 문제를 차단합니다.
+
+- [X] T040 [P] [US2] 최종 초안 형식 검증 계약 테스트를 `tests/contract/draft-format.contract.test.ts`에 추가한다
+- [X] T041 [US2] 최종 글 프롬프트에 템플릿 노출 금지 규칙을 `convex/generateDraft.ts`에 반영한다
+- [X] T042 [US2] `final-draft` 단계 형식 위반 감지 및 실패 응답(`DRAFT_FORMAT_VIOLATION`)을 `convex/generateDraft.ts`에 구현한다
+- [X] T043 [US2] 템플릿 노출 차단 수동 검증 시나리오를 `specs/001-staged-ai-generation/quickstart.md`에 반영한다
+
+---
+
+## Phase 8: Hotfix - 과도한 길이 출력 차단
+
+**Purpose**: 최종 생성 결과가 지나치게 길어지는 문제를 길이 계약으로 차단합니다.
+
+- [X] T044 [P] [US2] 길이 정책 계약을 `specs/001-staged-ai-generation/spec.md`와 `contracts/generation-workflow.md`에 반영한다
+- [X] T045 [US2] 단일/리뷰 길이 상수(1200/280/320)와 실패 코드(`DRAFT_TOO_LONG`)를 `convex/constants.ts`, `convex/generateDraft.ts`에 반영한다
+- [X] T046 [P] [US2] 길이 초과 검증 테스트를 `tests/contract/draft-format.contract.test.ts`에 추가한다
+- [X] T047 [US2] 길이 초과 실패 수동 검증 시나리오를 `specs/001-staged-ai-generation/quickstart.md`에 반영한다
+
+---
+
+## Phase 9: Personalization - 사용자별 styleProfile 반영
+
+**Purpose**: 사용자별 도입구/말투 정책을 `userId` 기준 `styleProfile`로 분리해 생성 품질과 일관성을 높입니다.
+
+- [X] T048 [P] [US1] `styleProfiles` 데이터 모델과 `by_user` 인덱스를 `convex/schema.ts`, `specs/001-staged-ai-generation/data-model.md`에 반영한다
+- [X] T049 [P] [US2] `style-profile-preparation` 단계 계약과 실패/폴백 규칙을 `specs/001-staged-ai-generation/contracts/generation-workflow.md`에 반영한다
+- [X] T050 [US2] `openingMode(off/preferred/strict)` 정책과 `OPENING_CONSTRAINT_VIOLATION` 실패 처리를 `convex/generate.ts`, `convex/generateDraft.ts`에 구현한다
+- [X] T051 [P] [US2] 사용자별 styleProfile 격리 및 strict 도입구 강제 테스트를 `tests/contract/`, `tests/integration/`에 추가한다
+- [X] T052 [US1] styleProfile 설정/수정 경로를 `convex/styleProfiles.ts`, `src/app/(main)/generate/page.tsx`(또는 설정 화면)에 연결한다
+- [X] T053 [US2] styleProfile 수동 검증 시나리오를 `specs/001-staged-ai-generation/quickstart.md`에 추가 검증한다
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

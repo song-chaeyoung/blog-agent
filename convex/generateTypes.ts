@@ -2,9 +2,28 @@ import type { Id } from "./_generated/dataModel";
 
 export type StageName =
   | "summary-preparation"
+  | "style-profile-preparation"
   | "image-analysis"
   | "rag-context"
   | "final-draft";
+
+export type OpeningMode = "off" | "preferred" | "strict";
+
+export type StyleOpeningPattern = {
+  text: string;
+  repeatRate: number;
+  occurrences?: number;
+  sampleSize?: number;
+  lastSeenAt?: number;
+};
+
+export type GenerationStyleProfile = {
+  openingMode: OpeningMode;
+  fixedOpening?: string;
+  openerPatterns: StyleOpeningPattern[];
+  toneKeywords?: string[];
+  confidence?: number;
+};
 
 export type ReferenceSummary = {
   postId: Id<"posts">;
@@ -55,4 +74,3 @@ export function fail(
 ): GenerationFailure {
   return { ok: false, failedStage, code, message, retryable };
 }
-

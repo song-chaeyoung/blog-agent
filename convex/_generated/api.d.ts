@@ -20,6 +20,7 @@ import type * as generateValidation from "../generateValidation.js";
 import type * as images from "../images.js";
 import type * as postSummaries from "../postSummaries.js";
 import type * as posts from "../posts.js";
+import type * as styleProfiles from "../styleProfiles.js";
 import type * as users from "../users.js";
 
 import type {
@@ -41,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   images: typeof images;
   postSummaries: typeof postSummaries;
   posts: typeof posts;
+  styleProfiles: typeof styleProfiles;
   users: typeof users;
 }>;
 

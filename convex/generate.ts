@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { v } from "convex/values";
-import { action } from "./_generated/server";
+import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { resolveAuthedUserId } from "./generateAuth";
 import {
@@ -13,9 +13,68 @@ import {
   composeReviewDraftStage,
   composeSingleDraftStage,
 } from "./generateDraft";
-import type { GenerationResult } from "./generateTypes";
+import {
+  fail,
+  type GenerationFailure,
+  type GenerationResult,
+  type GenerationStyleProfile,
+} from "./generateTypes";
+import type { Id } from "./_generated/dataModel";
 
 const openai = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+async function prepareStyleProfileStage(
+  ctx: ActionCtx,
+  userId: Id<"users">
+): Promise<
+  { ok: true; styleProfile: GenerationStyleProfile } | GenerationFailure
+> {
+  const profile = await ctx.runQuery(internal.styleProfiles.getStyleProfileByUser, {
+    userId,
+  });
+
+  if (!profile) {
+    return {
+      ok: true,
+      styleProfile: {
+        openingMode: "off",
+        openerPatterns: [],
+        toneKeywords: [],
+        confidence: 0,
+      },
+    };
+  }
+
+  const fixedOpening = profile.fixedOpening?.trim() || undefined;
+  const openerPatterns = profile.openerPatterns
+    .map((item) => ({
+      ...item,
+      text: item.text.trim(),
+    }))
+    .filter((item) => item.text.length > 0)
+    .sort((a, b) => b.repeatRate - a.repeatRate)
+    .slice(0, 5);
+
+  if (profile.openingMode === "strict" && !fixedOpening && openerPatterns.length === 0) {
+    return fail(
+      "style-profile-preparation",
+      "STYLE_PROFILE_STRICT_OPENING_MISSING",
+      "strict 모드에는 고정 시작문 또는 반복 시작문 패턴이 필요합니다.",
+      false
+    );
+  }
+
+  return {
+    ok: true,
+    styleProfile: {
+      openingMode: profile.openingMode,
+      fixedOpening,
+      openerPatterns,
+      toneKeywords: profile.toneKeywords ?? [],
+      confidence: profile.confidence,
+    },
+  };
+}
 
 export const createBlogFromImage = action({
   args: { imageUrl: v.string() },
@@ -28,6 +87,11 @@ export const createBlogFromImage = action({
     const auth = await resolveAuthedUserId(ctx);
     if (!auth.ok) {
       return auth;
+    }
+
+    const styleProfileStage = await prepareStyleProfileStage(ctx, auth.userId);
+    if (!styleProfileStage.ok) {
+      return styleProfileStage;
     }
 
     const ai = openai();
@@ -49,7 +113,8 @@ export const createBlogFromImage = action({
     const draft = await composeSingleDraftStage(
       ai,
       imageAnalysis.observations[0],
-      rag.references
+      rag.references,
+      styleProfileStage.styleProfile
     );
     if (!draft.ok) {
       return draft;
@@ -97,6 +162,11 @@ export const createBlogReview = action({
       return auth;
     }
 
+    const styleProfileStage = await prepareStyleProfileStage(ctx, auth.userId);
+    if (!styleProfileStage.ok) {
+      return styleProfileStage;
+    }
+
     const ai = openai();
     const imageAnalysis = await analyzeImagesStage(ai, normalized.imageUrls, "review");
     if (!imageAnalysis.ok) {
@@ -117,6 +187,7 @@ export const createBlogReview = action({
       ai,
       imageAnalysis.observations,
       rag.references,
+      styleProfileStage.styleProfile,
       normalized.memo,
       normalized.keywords
     );

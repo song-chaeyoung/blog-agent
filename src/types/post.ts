@@ -7,6 +7,7 @@ export type ImageBlock = {
 
 export type StageName =
   | "summary-preparation"
+  | "style-profile-preparation"
   | "image-analysis"
   | "rag-context"
   | "final-draft";
@@ -48,4 +49,3 @@ export type ReviewResultData = {
 
 export type ResultData = SingleResultData | ReviewResultData;
 export type GenerationResult = ResultData | GenerationFailure;
-

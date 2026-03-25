@@ -7,6 +7,7 @@
 ```ts
 type StageName =
   | "summary-preparation"
+  | "style-profile-preparation"
   | "image-analysis"
   | "rag-context"
   | "final-draft";
@@ -261,6 +262,42 @@ void
 - 다중 이미지 중 하나라도 분석 실패
 - JSON/형식 파싱 실패
 
+### `internal.generate.prepareStyleProfile`
+
+**입력**
+
+```ts
+{
+  userId: Id<"users">;
+}
+```
+
+**성공 결과**
+
+```ts
+{
+  ok: true;
+  stage: "style-profile-preparation";
+  data: {
+    openingMode: "off" | "preferred" | "strict";
+    fixedOpening?: string;
+    openerPatterns: Array<{
+      text: string;
+      repeatRate: number;
+      occurrences: number;
+      sampleSize: number;
+    }>;
+    toneKeywords?: string[];
+    confidence: number;
+  };
+}
+```
+
+**실패/폴백 규칙**
+
+- 조회 실패 또는 프로필 없음: 실패 대신 `openingMode = "off"`로 폴백
+- `openingMode = "strict"`인데 `fixedOpening`이 비어 있으면 실패
+
 ### `internal.generate.buildRagContext`
 
 **입력**
@@ -317,6 +354,15 @@ void
     summary: string;
     score: number;
   }>;
+  styleProfile: {
+    openingMode: "off" | "preferred" | "strict";
+    fixedOpening?: string;
+    openerPatterns: Array<{
+      text: string;
+      repeatRate: number;
+    }>;
+    toneKeywords?: string[];
+  };
   memo?: string;
   keywords?: string[];
 }
@@ -357,6 +403,9 @@ void
 - 빈 응답
 - JSON/형식 파싱 실패
 - 요구된 이미지 수와 캡션 수 불일치
+- 분석 템플릿 노출(`상황/분위기/감정` 라벨, markdown 목록/헤더, 내부 레이블) 감지
+- 길이 정책 초과(단일 본문 1200자, 리뷰 `intro/outro` 280자, 이미지별 `caption` 320자)
+- `openingMode = "strict"` 정책 미충족(첫 줄 고정 시작문 불일치)
 
 ## 3. 프런트 타입 영향
 
