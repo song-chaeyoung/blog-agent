@@ -29,9 +29,22 @@ async function prepareStyleProfileStage(
 ): Promise<
   { ok: true; styleProfile: GenerationStyleProfile } | GenerationFailure
 > {
-  const profile = await ctx.runQuery(internal.styleProfiles.getStyleProfileByUser, {
-    userId,
-  });
+  let profile: GenerationStyleProfile | null = null;
+  try {
+    profile = await ctx.runQuery(internal.styleProfiles.getStyleProfileByUser, {
+      userId,
+    });
+  } catch {
+    return {
+      ok: true,
+      styleProfile: {
+        openingMode: "off",
+        openerPatterns: [],
+        toneKeywords: [],
+        confidence: 0,
+      },
+    };
+  }
 
   if (!profile) {
     return {
@@ -55,7 +68,7 @@ async function prepareStyleProfileStage(
     .sort((a, b) => b.repeatRate - a.repeatRate)
     .slice(0, 5);
 
-  if (profile.openingMode === "strict" && !fixedOpening && openerPatterns.length === 0) {
+  if (profile.openingMode === "strict" && !fixedOpening) {
     return fail(
       "style-profile-preparation",
       "STYLE_PROFILE_STRICT_OPENING_MISSING",
@@ -120,19 +133,39 @@ export const createBlogFromImage = action({
       return draft;
     }
 
-    const embeddingRes = await ai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: draft.content,
-    });
-    const postEmbedding = embeddingRes.data[0].embedding;
+    let postEmbedding: number[];
+    try {
+      const embeddingRes = await ai.embeddings.create({
+        model: "text-embedding-3-small",
+        input: draft.content,
+      });
+      postEmbedding = embeddingRes.data[0].embedding;
+    } catch {
+      return fail(
+        "final-draft",
+        "EMBEDDING_CREATE_FAILED",
+        "Embedding creation failed. Please retry.",
+        true
+      );
+    }
 
-    const postId = await ctx.runMutation(internal.generateHelpers.saveGeneratedPost, {
-      userId: auth.userId,
-      content: draft.content,
-      imageUrl: validated.imageUrl,
-      embedding: postEmbedding,
-      references: rag.references ?? [],
-    });
+    let postId: Id<"posts">;
+    try {
+      postId = await ctx.runMutation(internal.generateHelpers.saveGeneratedPost, {
+        userId: auth.userId,
+        content: draft.content,
+        imageUrl: validated.imageUrl,
+        embedding: postEmbedding,
+        references: rag.references ?? [],
+      });
+    } catch {
+      return fail(
+        "final-draft",
+        "POST_SAVE_FAILED",
+        "Saving the generated post failed. Please retry.",
+        true
+      );
+    }
 
     return {
       ok: true,
@@ -195,24 +228,44 @@ export const createBlogReview = action({
       return draft;
     }
 
-    const embeddingRes = await ai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: draft.content,
-    });
-    const postEmbedding = embeddingRes.data[0].embedding;
+    let postEmbedding: number[];
+    try {
+      const embeddingRes = await ai.embeddings.create({
+        model: "text-embedding-3-small",
+        input: draft.content,
+      });
+      postEmbedding = embeddingRes.data[0].embedding;
+    } catch {
+      return fail(
+        "final-draft",
+        "EMBEDDING_CREATE_FAILED",
+        "Embedding creation failed. Please retry.",
+        true
+      );
+    }
 
-    const postId = await ctx.runMutation(
-      internal.generateHelpers.saveGeneratedReviewPost,
-      {
-        userId: auth.userId,
-        content: draft.content,
-        imageBlocks: draft.imageBlocks,
-        intro: draft.intro,
-        outro: draft.outro,
-        embedding: postEmbedding,
-        references: rag.references ?? [],
-      }
-    );
+    let postId: Id<"posts">;
+    try {
+      postId = await ctx.runMutation(
+        internal.generateHelpers.saveGeneratedReviewPost,
+        {
+          userId: auth.userId,
+          content: draft.content,
+          imageBlocks: draft.imageBlocks,
+          intro: draft.intro,
+          outro: draft.outro,
+          embedding: postEmbedding,
+          references: rag.references ?? [],
+        }
+      );
+    } catch {
+      return fail(
+        "final-draft",
+        "POST_SAVE_FAILED",
+        "Saving the generated post failed. Please retry.",
+        true
+      );
+    }
 
     return {
       ok: true,
