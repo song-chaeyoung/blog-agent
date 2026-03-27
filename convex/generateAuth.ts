@@ -20,14 +20,21 @@ export async function resolveAuthedUserId(
     const userId = await ctx.runQuery(internal.generateHelpers.getUserId, {
       tokenIdentifier: identity.tokenIdentifier,
     });
+    if (!userId) {
+      return fail(
+        "summary-preparation",
+        "USER_NOT_FOUND",
+        "사용자 정보를 찾을 수 없습니다.",
+        false
+      );
+    }
     return { ok: true, userId };
   } catch {
     return fail(
       "summary-preparation",
-      "USER_NOT_FOUND",
-      "사용자 정보를 찾을 수 없습니다.",
-      false
+      "USER_LOOKUP_FAILED",
+      "사용자 정보를 조회하는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+      true
     );
   }
 }
-

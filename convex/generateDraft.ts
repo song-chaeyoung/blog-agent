@@ -18,14 +18,14 @@ import type { ImageObservation } from "./generateStages";
 const ANALYSIS_LABEL_REGEX = /(상황|분위기|감정)\s*[:：]/g;
 const MARKDOWN_LIST_REGEX = /^\s*[-*]\s+/m;
 const MARKDOWN_HEADING_REGEX = /^\s*#{1,6}\s+/m;
-const INTERNAL_LABEL_REGEX = /\[(이미지 관찰|참고 요약|이미지 \d+)\]/;
+const INTERNAL_LABEL_REGEX = /\[(이미지 관찰|참고 요약(?:\s*\d+)?|이미지\s*\d+)\]/;
 
 export function hasDraftFormatViolation(text: string): boolean {
   if (MARKDOWN_LIST_REGEX.test(text)) return true;
   if (MARKDOWN_HEADING_REGEX.test(text)) return true;
   if (INTERNAL_LABEL_REGEX.test(text)) return true;
   const labelMatches = text.match(ANALYSIS_LABEL_REGEX) ?? [];
-  return labelMatches.length >= 2;
+  return labelMatches.length >= 1;
 }
 
 export function ensureDraftFormat(text: string): GenerationFailure | null {

@@ -25,6 +25,16 @@ describe("draft format contract", () => {
     expect(hasDraftFormatViolation(paragraph)).toBe(false);
   });
 
+  it("detects numbered internal labels", () => {
+    const leaked = "오늘의 장면을 [참고 요약 1] 기준으로 정리해 보면 따뜻한 공기가 느껴집니다.";
+    expect(hasDraftFormatViolation(leaked)).toBe(true);
+  });
+
+  it("detects a single analysis label occurrence", () => {
+    const leaked = "상황: 창가에 놓인 컵에 오후 햇살이 비치며 고요한 순간이 이어집니다.";
+    expect(hasDraftFormatViolation(leaked)).toBe(true);
+  });
+
   it("detects single draft length overflow", () => {
     const tooLong = "가".repeat(1300);
     const violation = getSingleDraftLengthViolation(tooLong);
