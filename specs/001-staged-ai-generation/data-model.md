@@ -52,9 +52,33 @@
 - 기존 `embedding` 필드 이름은 유지하되, 의미를 원문 기반 벡터에서 `summary` 기반 벡터로 재정의한다.
 - `summaryStatus`와 `summaryError`는 요약 백그라운드 작업의 성공/실패를 사용자가 볼 수 있는 형태로 남기기 위한 최소 상태다.
 
+### 3. StyleProfile
+
+사용자 단위 문체 프로필을 별도 테이블로 관리한다.
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `_id` | `Id<"styleProfiles">` | Convex 문서 ID |
+| `userId` | `Id<"users">` | 소유 사용자 |
+| `openingMode` | `"off" \| "preferred" \| "strict"` | 도입구 강제 정책 |
+| `fixedOpening` | `string?` | 사용자 지정 고정 도입구 |
+| `openerPatterns` | `{ text: string; repeatRate: number; occurrences: number; sampleSize: number; lastSeenAt: number }[]` | 반복 시작문 통계 |
+| `toneKeywords` | `string[]?` | 말투/분위기 키워드 |
+| `confidence` | `number` | 프로필 신뢰도(0~1) |
+| `updatedAt` | `number` | 최신 갱신 시각(ms epoch) |
+
+**인덱스**
+
+- `by_user(userId)` (1:1 보장 목적)
+
+**설계 근거**
+
+- 문체와 도입구는 게시글 단위보다 사용자 단위 속성이므로 `posts`에 중복 저장하지 않고 `userId` 기준으로 분리한다.
+- `openingMode`는 사용자별 강제 수준이 다르다는 요구(`off/preferred/strict`)를 직접 표현한다.
+
 ## 런타임 계약 엔티티
 
-### 3. Summary Generation Job
+### 4. Summary Generation Job
 
 별도 테이블을 만들지 않고 `posts` 문서 상태로 표현한다.
 
@@ -65,7 +89,7 @@
 | `error` | `string?` | 실패 시 원인 |
 | `scheduledBy` | `"create" \| "update" \| "backfill"` | 예약 계기 |
 
-### 4. Image Observation
+### 5. Image Observation
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
@@ -73,7 +97,7 @@
 | `observation` | `string` | 이미지에서 추출한 구조화/서술형 관찰 결과 |
 | `position` | `number` | 다중 이미지 순서 |
 
-### 5. RAG Context Bundle
+### 6. RAG Context Bundle
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
@@ -89,14 +113,14 @@
 | `summary` | `string` | 저장된 요약 |
 | `score` | `number` | 유사도 점수 |
 
-### 6. Generation Stage Result
+### 7. Generation Stage Result
 
 모든 스테이지가 공통으로 따르는 반환 규약이다.
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `ok` | `boolean` | 성공 여부 |
-| `stage` | `"summary-preparation" \| "image-analysis" \| "rag-context" \| "final-draft"` | 실행 단계 |
+| `stage` | `"summary-preparation" \| "style-profile-preparation" \| "image-analysis" \| "rag-context" \| "final-draft"` | 실행 단계 |
 | `code` | `string?` | 실패 코드 |
 | `message` | `string` | 사용자에게 보여줄 메시지 |
 | `retryable` | `boolean` | 클라이언트 재요청 가능 여부 (`true`여도 서버 내부 자동 재시도는 수행하지 않음) |
@@ -105,6 +129,7 @@
 ## 관계
 
 - `User 1 : N Post`
+- `User 1 : 0..1 StyleProfile`
 - `Post 1 : 0..1 Summary Generation Job 상태`
 - `Generation Request 1 : N Image Observation`
 - `Generation Request 1 : 1 RAG Context Bundle`
@@ -126,6 +151,7 @@
 ```text
 requested
   -> summary-preparation succeeded
+  -> style-profile-preparation succeeded
   -> image-analysis succeeded
   -> rag-context succeeded
   -> final-draft succeeded

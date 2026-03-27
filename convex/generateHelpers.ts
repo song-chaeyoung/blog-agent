@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 /** 토큰으로 userId 조회 */
 export const getUserId = internalQuery({
@@ -11,8 +12,7 @@ export const getUserId = internalQuery({
         q.eq("tokenIdentifier", args.tokenIdentifier)
       )
       .unique();
-    if (!user) throw new Error("사용자를 찾을 수 없습니다.");
-    return user._id;
+    return user?._id ?? null;
   },
 });
 
@@ -29,21 +29,61 @@ export const getPostsByIds = internalQuery({
   },
 });
 
+/** summary 준비 상태인 후보 조회 */
+export const getSummaryCandidates = internalQuery({
+  args: { userId: v.id("users"), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const posts = await ctx.db
+      .query("posts")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("userId"), args.userId),
+          q.eq(q.field("summaryStatus"), "ready"),
+        ),
+      )
+      .take(args.limit ?? 50);
+
+    return posts
+      .filter((post) => post.summary && post.embedding)
+      .map((post) => ({
+        postId: post._id,
+        summary: post.summary!,
+        embedding: post.embedding!,
+      }));
+  },
+});
+
 /** 생성된 글 저장 */
 export const saveGeneratedPost = internalMutation({
   args: {
     userId: v.id("users"),
     content: v.string(),
     imageUrl: v.string(),
-    embedding: v.array(v.float64()),
+    references: v.optional(
+      v.array(
+        v.object({
+          postId: v.id("posts"),
+          summary: v.string(),
+          score: v.number(),
+        }),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("posts", {
+    const postId = await ctx.db.insert("posts", {
       userId: args.userId,
       content: args.content,
+      summaryStatus: "pending",
       imageUrl: args.imageUrl,
-      embedding: args.embedding,
+      references: args.references,
     });
+
+    await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
+      postId,
+      content: args.content,
+    });
+
+    return postId;
   },
 });
 
@@ -52,6 +92,7 @@ export const saveGeneratedReviewPost = internalMutation({
   args: {
     userId: v.id("users"),
     content: v.string(),
+    summary: v.optional(v.string()),
     imageBlocks: v.array(
       v.object({
         url: v.string(),
@@ -60,16 +101,32 @@ export const saveGeneratedReviewPost = internalMutation({
     ),
     intro: v.string(),
     outro: v.string(),
-    embedding: v.array(v.float64()),
+    references: v.optional(
+      v.array(
+        v.object({
+          postId: v.id("posts"),
+          summary: v.string(),
+          score: v.number(),
+        }),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("posts", {
+    const postId = await ctx.db.insert("posts", {
       userId: args.userId,
       content: args.content,
+      summaryStatus: "pending",
       imageBlocks: args.imageBlocks,
       intro: args.intro,
       outro: args.outro,
-      embedding: args.embedding,
+      references: args.references,
     });
+
+    await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
+      postId,
+      content: args.content,
+    });
+
+    return postId;
   },
 });

@@ -7,53 +7,78 @@ import type { ImageBlock, ResultData } from "@/types/post";
 
 export type { ImageBlock, ResultData };
 
-type EditDraft = {
+type ReviewDraft = {
+  kind: "review";
   blocks: ImageBlock[];
   intro: string;
   outro: string;
 };
 
-/**
- * 생성 결과 편집 관련 상태와 핸들러를 관리하는 훅
- */
+type SingleDraft = {
+  kind: "single";
+  content: string;
+};
+
+type EditDraft = ReviewDraft | SingleDraft;
+
 export function useResultEditor(result: ResultData) {
   const router = useRouter();
   const updatePost = useMutation(api.posts.updatePost);
 
   const [editMode, setEditMode] = useState(false);
-  const [draft, setDraft] = useState<EditDraft>({
-    blocks: result.imageBlocks,
-    intro: result.intro,
-    outro: result.outro,
-  });
+  const [draft, setDraft] = useState<EditDraft>(
+    result.mode === "review"
+      ? {
+          kind: "review",
+          blocks: result.imageBlocks,
+          intro: result.intro,
+          outro: result.outro,
+        }
+      : { kind: "single", content: result.content }
+  );
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const hasChanges =
-    draft.intro !== result.intro ||
-    draft.outro !== result.outro ||
-    draft.blocks.some((b, i) => b.caption !== result.imageBlocks[i]?.caption);
+    result.mode === "review" && draft.kind === "review"
+      ? draft.intro !== result.intro ||
+        draft.outro !== result.outro ||
+        draft.blocks.some((b, i) => b.caption !== result.imageBlocks[i]?.caption)
+      : draft.kind === "single"
+      ? draft.content !== result.content
+      : false;
 
   const startEdit = useCallback(() => {
-    setDraft({
-      blocks: result.imageBlocks,
-      intro: result.intro,
-      outro: result.outro,
-    });
+    setDraft(
+      result.mode === "review"
+        ? {
+            kind: "review",
+            blocks: result.imageBlocks,
+            intro: result.intro,
+            outro: result.outro,
+          }
+        : { kind: "single", content: result.content }
+    );
     setEditMode(true);
   }, [result]);
 
   const cancelEdit = useCallback(() => {
-    setDraft({
-      blocks: result.imageBlocks,
-      intro: result.intro,
-      outro: result.outro,
-    });
+    setDraft(
+      result.mode === "review"
+        ? {
+            kind: "review",
+            blocks: result.imageBlocks,
+            intro: result.intro,
+            outro: result.outro,
+          }
+        : { kind: "single", content: result.content }
+    );
     setEditMode(false);
   }, [result]);
 
   const updateCaption = useCallback((index: number, caption: string) => {
     setDraft((prev) => {
+      if (prev.kind !== "review") return prev;
       const updated = [...prev.blocks];
       updated[index] = { ...updated[index], caption };
       return { ...prev, blocks: updated };
@@ -61,30 +86,41 @@ export function useResultEditor(result: ResultData) {
   }, []);
 
   const updateIntro = useCallback((intro: string) => {
-    setDraft((prev) => ({ ...prev, intro }));
+    setDraft((prev) => (prev.kind === "review" ? { ...prev, intro } : prev));
   }, []);
 
   const updateOutro = useCallback((outro: string) => {
-    setDraft((prev) => ({ ...prev, outro }));
+    setDraft((prev) => (prev.kind === "review" ? { ...prev, outro } : prev));
+  }, []);
+
+  const updateContent = useCallback((content: string) => {
+    setDraft((prev) => (prev.kind === "single" ? { ...prev, content } : prev));
   }, []);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      const parts: string[] = [];
-      if (draft.intro) parts.push(draft.intro);
-      draft.blocks.forEach((b) => {
-        if (b.caption) parts.push(b.caption);
-      });
-      if (draft.outro) parts.push(draft.outro);
+      if (draft.kind === "review") {
+        const parts: string[] = [];
+        if (draft.intro) parts.push(draft.intro);
+        draft.blocks.forEach((b) => {
+          if (b.caption) parts.push(b.caption);
+        });
+        if (draft.outro) parts.push(draft.outro);
 
-      await updatePost({
-        postId: result.postId,
-        content: parts.join("\n\n"),
-        imageBlocks: draft.blocks,
-        intro: draft.intro,
-        outro: draft.outro,
-      });
+        await updatePost({
+          postId: result.postId,
+          content: parts.join("\n\n"),
+          imageBlocks: draft.blocks,
+          intro: draft.intro,
+          outro: draft.outro,
+        });
+      } else {
+        await updatePost({
+          postId: result.postId,
+          content: draft.content,
+        });
+      }
       router.push(`/posts/${result.postId}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "저장 중 오류가 발생했습니다.");
@@ -94,9 +130,13 @@ export function useResultEditor(result: ResultData) {
   }, [draft, result.postId, updatePost, router]);
 
   const handleCopy = useCallback(async () => {
-    const text = editMode
-      ? draft.blocks.map((b) => b.caption).join("\n\n")
-      : result.content;
+    const text =
+      draft.kind === "review"
+        ? [draft.intro, ...draft.blocks.map((b) => b.caption), draft.outro]
+            .filter((x) => x.trim().length > 0)
+            .join("\n\n")
+        : draft.content;
+
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -104,16 +144,10 @@ export function useResultEditor(result: ResultData) {
     } catch {
       toast.error("클립보드 복사에 실패했습니다.");
     }
-  }, [editMode, draft.blocks, result.content]);
-
-  // 표시할 실제 데이터 (편집 모드면 draft, 아니면 원본)
-  const display = editMode
-    ? draft
-    : { blocks: result.imageBlocks, intro: result.intro, outro: result.outro };
+  }, [draft]);
 
   return {
     editMode,
-    display,
     draft,
     hasChanges,
     saving,
@@ -123,7 +157,9 @@ export function useResultEditor(result: ResultData) {
     updateCaption,
     updateIntro,
     updateOutro,
+    updateContent,
     handleSave,
     handleCopy,
   };
 }
+
