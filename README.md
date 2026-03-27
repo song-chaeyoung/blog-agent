@@ -90,3 +90,42 @@ convex/
 ├── generateHelpers.ts  # 프롬프트 / 유사 글 검색
 └── images.ts           # 이미지 업로드
 ```
+
+## AI 에이전트 활용 방식
+
+이 프로젝트는 새 기능을 개발할 때 **speckit** 워크플로우를 통해 AI 에이전트를 체계적으로 활용했습니다.
+"아이디어 → 명세 → 설계 → 태스크 → 구현"의 각 단계를 별도 에이전트 스킬로 분리해,
+AI가 자유롭게 코드를 생성하기 전에 요구사항이 먼저 문서화되도록 했습니다.
+
+### 워크플로우 순서
+
+| 단계 | 스킬 | 역할 |
+|------|------|------|
+| 0. 아이디어 정리 | `discuss` | 막연한 기능 설명 → 요구사항 구조화 |
+| 1. 명세 | `speckit-specify` | 자연어 기능 설명 → `spec.md` 작성 |
+| 2. 설계 | `speckit-plan` | spec 기반 → `plan.md`, `data-model.md`, `quickstart.md` 생성 |
+| 3. 태스크 | `speckit-tasks` | plan 기반 → 의존성 순서대로 `tasks.md` 생성 |
+| 4. 구현 | `speckit-implement` | tasks.md를 읽고 코드 구현 및 완료 체크 |
+
+보조 스킬로 `speckit-clarify`(명세 보완), `speckit-analyze`(일관성 검사),
+`speckit-constitution`(프로젝트 원칙 관리)도 함께 사용했습니다.
+
+### 산출물 위치
+
+실제 기능별 산출물은 `specs/` 폴더에 저장됩니다.
+
+```
+specs/
+└── 001-staged-ai-generation/   # 단계 분리형 AI 생성 재정의
+    ├── spec.md                  # 기능 요구사항 및 승인 시나리오
+    ├── plan.md                  # 기술 설계 및 아키텍처 결정
+    ├── tasks.md                 # 구현 태스크 체크리스트
+    ├── data-model.md            # 엔티티 및 DB 스키마 설계
+    ├── quickstart.md            # 검증 시나리오 및 완료 기준
+    └── research.md              # 기술 조사 및 결정 근거
+```
+
+### 에이전트 설정
+
+`.specify/memory/constitution.md`에 이 프로젝트의 핵심 원칙(인증, 데이터 격리, AI 출력 계약 등)이 정의되어 있습니다.
+에이전트는 설계 단계마다 이 원칙과의 정합성을 검토합니다.
