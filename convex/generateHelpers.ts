@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 /** 토큰으로 userId 조회 */
 export const getUserId = internalQuery({
@@ -58,7 +59,6 @@ export const saveGeneratedPost = internalMutation({
     userId: v.id("users"),
     content: v.string(),
     imageUrl: v.string(),
-    embedding: v.array(v.float64()),
     references: v.optional(
       v.array(
         v.object({
@@ -70,15 +70,20 @@ export const saveGeneratedPost = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("posts", {
+    const postId = await ctx.db.insert("posts", {
       userId: args.userId,
       content: args.content,
-      summary: args.content,
-      summaryStatus: "ready",
-      summaryUpdatedAt: Date.now(),
+      summaryStatus: "pending",
       imageUrl: args.imageUrl,
-      embedding: args.embedding,
+      references: args.references,
     });
+
+    await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
+      postId,
+      content: args.content,
+    });
+
+    return postId;
   },
 });
 
@@ -96,7 +101,6 @@ export const saveGeneratedReviewPost = internalMutation({
     ),
     intro: v.string(),
     outro: v.string(),
-    embedding: v.array(v.float64()),
     references: v.optional(
       v.array(
         v.object({
@@ -108,16 +112,21 @@ export const saveGeneratedReviewPost = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("posts", {
+    const postId = await ctx.db.insert("posts", {
       userId: args.userId,
       content: args.content,
-      summary: args.content,
-      summaryStatus: "ready",
-      summaryUpdatedAt: Date.now(),
+      summaryStatus: "pending",
       imageBlocks: args.imageBlocks,
       intro: args.intro,
       outro: args.outro,
-      embedding: args.embedding,
+      references: args.references,
     });
+
+    await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
+      postId,
+      content: args.content,
+    });
+
+    return postId;
   },
 });

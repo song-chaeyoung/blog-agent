@@ -23,6 +23,7 @@ type Action =
   | { type: "SET_IMAGES"; imageUrls: string[]; allReady: boolean }
   | { type: "START_GENERATING" }
   | { type: "SET_RESULT"; result: ResultData }
+  | { type: "RESTORE_UPLOAD"; imageUrls: string[]; allReady: boolean }
   | { type: "RESET" };
 
 const initialState: PageState = {
@@ -45,6 +46,12 @@ function reducer(state: PageState, action: Action): PageState {
       return { step: "generating", imageCount: state.imageUrls.length };
     case "SET_RESULT":
       return { step: "result", result: action.result };
+    case "RESTORE_UPLOAD":
+      return {
+        step: "upload",
+        imageUrls: action.imageUrls,
+        allReady: action.allReady,
+      };
     case "RESET":
       return initialState;
     default:
@@ -63,6 +70,7 @@ export default function GeneratePage() {
   const createBlogReview = useAction(api.generate.createBlogReview);
   const styleProfile = useQuery(api.styleProfiles.getMyStyleProfile);
   const upsertStyleProfile = useMutation(api.styleProfiles.upsertMyStyleProfile);
+  const isStyleProfileLoading = styleProfile === undefined;
 
   useEffect(() => {
     if (!styleProfile) return;
@@ -76,6 +84,10 @@ export default function GeneratePage() {
 
   const handleGenerate = async () => {
     if (state.step !== "upload" || state.imageUrls.length === 0) return;
+    const previousUploadState = {
+      imageUrls: [...state.imageUrls],
+      allReady: state.allReady,
+    };
 
     dispatch({ type: "START_GENERATING" });
     try {
@@ -96,14 +108,26 @@ export default function GeneratePage() {
       }
 
       if (!result.ok) {
-        dispatch({ type: "RESET" });
+        if (result.retryable) {
+          dispatch({
+            type: "RESTORE_UPLOAD",
+            imageUrls: previousUploadState.imageUrls,
+            allReady: previousUploadState.allReady,
+          });
+        } else {
+          dispatch({ type: "RESET" });
+        }
         toast.error(`[${result.failedStage}] ${result.message}`);
         return;
       }
 
       dispatch({ type: "SET_RESULT", result });
     } catch (e) {
-      dispatch({ type: "RESET" });
+      dispatch({
+        type: "RESTORE_UPLOAD",
+        imageUrls: previousUploadState.imageUrls,
+        allReady: previousUploadState.allReady,
+      });
       toast.error(
         e instanceof Error ? e.message : "글 생성에 실패했습니다. 다시 시도해 주세요."
       );
@@ -111,6 +135,10 @@ export default function GeneratePage() {
   };
 
   const handleSaveStyleProfile = async () => {
+    if (isStyleProfileLoading) {
+      toast.error("문체 설정을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
     if (openingMode === "strict" && fixedOpening.trim().length === 0) {
       toast.error("strict 모드에서는 고정 시작문을 입력해 주세요.");
       return;
@@ -192,10 +220,14 @@ export default function GeneratePage() {
           <button
             type="button"
             onClick={handleSaveStyleProfile}
-            disabled={savingProfile}
+            disabled={savingProfile || isStyleProfileLoading}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
           >
-            {savingProfile ? "저장 중..." : "문체 설정 저장"}
+            {savingProfile
+              ? "저장 중..."
+              : isStyleProfileLoading
+                ? "문체 설정 로딩 중..."
+                : "문체 설정 저장"}
           </button>
         </div>
         <button

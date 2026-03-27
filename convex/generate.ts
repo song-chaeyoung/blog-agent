@@ -133,29 +133,12 @@ export const createBlogFromImage = action({
       return draft;
     }
 
-    let postEmbedding: number[];
-    try {
-      const embeddingRes = await ai.embeddings.create({
-        model: "text-embedding-3-small",
-        input: draft.content,
-      });
-      postEmbedding = embeddingRes.data[0].embedding;
-    } catch {
-      return fail(
-        "final-draft",
-        "EMBEDDING_CREATE_FAILED",
-        "Embedding creation failed. Please retry.",
-        true
-      );
-    }
-
     let postId: Id<"posts">;
     try {
       postId = await ctx.runMutation(internal.generateHelpers.saveGeneratedPost, {
         userId: auth.userId,
         content: draft.content,
         imageUrl: validated.imageUrl,
-        embedding: postEmbedding,
         references: rag.references ?? [],
       });
     } catch {
@@ -228,22 +211,6 @@ export const createBlogReview = action({
       return draft;
     }
 
-    let postEmbedding: number[];
-    try {
-      const embeddingRes = await ai.embeddings.create({
-        model: "text-embedding-3-small",
-        input: draft.content,
-      });
-      postEmbedding = embeddingRes.data[0].embedding;
-    } catch {
-      return fail(
-        "final-draft",
-        "EMBEDDING_CREATE_FAILED",
-        "Embedding creation failed. Please retry.",
-        true
-      );
-    }
-
     let postId: Id<"posts">;
     try {
       postId = await ctx.runMutation(
@@ -254,7 +221,6 @@ export const createBlogReview = action({
           imageBlocks: draft.imageBlocks,
           intro: draft.intro,
           outro: draft.outro,
-          embedding: postEmbedding,
           references: rag.references ?? [],
         }
       );

@@ -52,6 +52,15 @@ export default defineSchema({
     ),
     intro: v.optional(v.string()),
     outro: v.optional(v.string()),
+    references: v.optional(
+      v.array(
+        v.object({
+          postId: v.id("posts"),
+          summary: v.string(),
+          score: v.number(),
+        })
+      )
+    ),
     embedding: v.optional(v.array(v.float64())),
   }).vectorIndex("by_embedding", {
     vectorField: "embedding",

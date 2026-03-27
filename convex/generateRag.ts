@@ -55,10 +55,11 @@ export async function buildRagContextStage(
       ids: results.map((item) => item._id),
     });
     const references: ReferenceSummary[] = [];
+    const scoreByPostId = new Map(
+      results.map((item) => [item._id, item._score ?? 0] as const)
+    );
 
-    for (let i = 0; i < posts.length; i += 1) {
-      const post = posts[i];
-      const score = results[i]?._score ?? 0;
+    for (const post of posts) {
       const summary = post?.summary?.trim();
       if (!post || !summary) {
         continue;
@@ -66,7 +67,7 @@ export async function buildRagContextStage(
       references.push({
         postId: post._id,
         summary,
-        score,
+        score: scoreByPostId.get(post._id) ?? 0,
       });
     }
 

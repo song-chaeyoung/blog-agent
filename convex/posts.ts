@@ -93,41 +93,51 @@ export const generateSummary = internalAction({
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
-
-    const summaryRes = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "입력 글을 4~6문장으로 간결히 요약해 주세요. 핵심 맥락과 문체 특징을 유지하세요.",
-        },
-        { role: "user", content: args.content },
-      ],
-      max_tokens: 500,
-    });
-
-    const summary = (summaryRes.choices[0]?.message?.content ?? "").trim();
-    if (!summary) {
-      await ctx.runMutation(internal.posts.updatePostSummaryFailed, {
-        postId: args.postId,
-        error: "요약 생성 결과가 비어 있습니다.",
+    try {
+      const summaryRes = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "입력 글을 4~6문장으로 간결히 요약해 주세요. 핵심 맥락과 문체 특징을 유지하세요.",
+          },
+          { role: "user", content: args.content },
+        ],
+        max_tokens: 500,
       });
-      return;
+
+      const summary = (summaryRes.choices[0]?.message?.content ?? "").trim();
+      if (!summary) {
+        throw new Error("요약 생성 결과가 비어 있습니다.");
+      }
+
+      const response = await openai.embeddings.create({
+        model: "text-embedding-3-small",
+        input: summary,
+      });
+
+      const embedding = response.data[0].embedding;
+
+      await ctx.runMutation(internal.posts.updatePostSummaryReady, {
+        postId: args.postId,
+        summary,
+        embedding,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "요약 생성/업데이트 중 오류가 발생했습니다.";
+      try {
+        await ctx.runMutation(internal.posts.updatePostSummaryFailed, {
+          postId: args.postId,
+          error: errorMessage,
+        });
+      } catch {
+        // Failed-state patch can also fail in transient outages; avoid rethrowing.
+      }
     }
-
-    const response = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: summary,
-    });
-
-    const embedding = response.data[0].embedding;
-
-    await ctx.runMutation(internal.posts.updatePostSummaryReady, {
-      postId: args.postId,
-      summary,
-      embedding,
-    });
   },
 });
 
@@ -192,8 +202,13 @@ async function retryMissingSummaryJobs(ctx: MutationCtx) {
         q.or(
           q.eq(q.field("summaryStatus"), undefined),
           q.eq(q.field("summaryStatus"), "failed"),
-          q.eq(q.field("summary"), undefined),
-          q.eq(q.field("embedding"), undefined),
+          q.and(
+            q.neq(q.field("summaryStatus"), "pending"),
+            q.or(
+              q.eq(q.field("summary"), undefined),
+              q.eq(q.field("embedding"), undefined),
+            ),
+          ),
         ),
       ),
     )
