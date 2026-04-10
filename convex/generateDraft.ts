@@ -247,6 +247,7 @@ export async function composeReviewDraftStage(
       : styleProfile.openingMode === "preferred"
       ? `가능하면 intro 첫 줄을 "${expectedOpening ?? ""}"로 시작하세요.`
       : `intro 첫 줄은 반드시 "${expectedOpening ?? ""}"와 정확히 일치해야 합니다.`;
+  let rawResponse = "";
 
   try {
     const response = await ai.chat.completions.create({
@@ -270,8 +271,8 @@ export async function composeReviewDraftStage(
       max_tokens: REVIEW_MAX_TOKENS,
     });
 
-    const raw = response.choices[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(raw) as {
+    rawResponse = response.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(rawResponse) as {
       intro?: string;
       captions?: string[];
       outro?: string;
@@ -280,6 +281,12 @@ export async function composeReviewDraftStage(
     const intro = (parsed.intro ?? "").trim();
     const outro = (parsed.outro ?? "").trim();
     const captions = (parsed.captions ?? []).map((caption) => caption.trim());
+    console.info("[composeReviewDraftStage] parsed review response", {
+      observationCount: observations.length,
+      captionCount: captions.length,
+      captions,
+      rawResponse,
+    });
 
     if (!intro && !outro && captions.length === 0) {
       return fail(
@@ -291,6 +298,13 @@ export async function composeReviewDraftStage(
     }
 
     if (captions.length !== observations.length) {
+      console.warn("[composeReviewDraftStage] caption count mismatch", {
+        observationCount: observations.length,
+        captionCount: captions.length,
+        captions,
+        imageUrls: observations.map((observation) => observation.url),
+        rawResponse,
+      });
       return fail(
         "final-draft",
         "CAPTION_COUNT_MISMATCH",
@@ -338,7 +352,12 @@ export async function composeReviewDraftStage(
       .join("\n\n");
 
     return { ok: true, content, intro, outro, imageBlocks };
-  } catch {
+  } catch (error) {
+    console.error("[composeReviewDraftStage] failed to parse/generate review draft", {
+      observationCount: observations.length,
+      rawResponse,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return fail(
       "final-draft",
       "DRAFT_PARSE_FAILED",
