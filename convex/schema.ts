@@ -42,6 +42,7 @@ export default defineSchema({
     summaryError: v.optional(v.string()),
     summaryUpdatedAt: v.optional(v.number()),
     imageUrl: v.optional(v.string()),
+    imageStorageId: v.optional(v.id("_storage")),
     imageBlocks: v.optional(
       v.array(
         v.object({
@@ -50,6 +51,7 @@ export default defineSchema({
         })
       )
     ),
+    imageStorageIds: v.optional(v.array(v.id("_storage"))),
     intro: v.optional(v.string()),
     outro: v.optional(v.string()),
     references: v.optional(
@@ -67,4 +69,21 @@ export default defineSchema({
     dimensions: 1536,
     filterFields: ["userId"],
   }),
+
+  imageUploads: defineTable({
+    userId: v.id("users"),
+    storageId: v.id("_storage"),
+    status: v.union(
+      v.literal("temp"),
+      v.literal("attached"),
+      v.literal("deleted")
+    ),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    attachedPostId: v.optional(v.id("posts")),
+  })
+    .index("by_storage_id", ["storageId"])
+    .index("by_user_status", ["userId", "status"])
+    .index("by_status_expires_at", ["status", "expiresAt"]),
 });

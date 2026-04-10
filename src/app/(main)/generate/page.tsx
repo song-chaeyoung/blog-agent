@@ -1,11 +1,11 @@
 "use client";
 
-import { useReducer, useCallback, useEffect, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useReducer, useCallback, useState } from "react";
+import { useAction } from "convex/react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
-import ImageUploader from "@/components/image-uploader";
+import ImageUploader, { type UploadedImage } from "@/components/image-uploader";
 import type { GenerationResult, ResultData } from "@/types/post";
 import { useResultEditor } from "@/hooks/useResultEditor";
 import {
@@ -15,20 +15,20 @@ import {
 } from "../../../../convex/constants";
 
 type PageState =
-  | { step: "upload"; imageUrls: string[]; allReady: boolean }
+  | { step: "upload"; images: UploadedImage[]; allReady: boolean }
   | { step: "generating"; imageCount: number }
   | { step: "result"; result: ResultData };
 
 type Action =
-  | { type: "SET_IMAGES"; imageUrls: string[]; allReady: boolean }
+  | { type: "SET_IMAGES"; images: UploadedImage[]; allReady: boolean }
   | { type: "START_GENERATING" }
   | { type: "SET_RESULT"; result: ResultData }
-  | { type: "RESTORE_UPLOAD"; imageUrls: string[]; allReady: boolean }
+  | { type: "RESTORE_UPLOAD"; images: UploadedImage[]; allReady: boolean }
   | { type: "RESET" };
 
 const initialState: PageState = {
   step: "upload",
-  imageUrls: [],
+  images: [],
   allReady: false,
 };
 
@@ -38,18 +38,18 @@ function reducer(state: PageState, action: Action): PageState {
       if (state.step !== "upload") return state;
       return {
         ...state,
-        imageUrls: action.imageUrls,
+        images: action.images,
         allReady: action.allReady,
       };
     case "START_GENERATING":
       if (state.step !== "upload") return state;
-      return { step: "generating", imageCount: state.imageUrls.length };
+      return { step: "generating", imageCount: state.images.length };
     case "SET_RESULT":
       return { step: "result", result: action.result };
     case "RESTORE_UPLOAD":
       return {
         step: "upload",
-        imageUrls: action.imageUrls,
+        images: action.images,
         allReady: action.allReady,
       };
     case "RESET":
@@ -63,29 +63,17 @@ export default function GeneratePage() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [memo, setMemo] = useState("");
   const [keywordInput, setKeywordInput] = useState("");
-  const [openingMode, setOpeningMode] = useState<"off" | "preferred" | "strict">("off");
-  const [fixedOpening, setFixedOpening] = useState("");
-  const [savingProfile, setSavingProfile] = useState(false);
   const createBlogFromImage = useAction(api.generate.createBlogFromImage);
   const createBlogReview = useAction(api.generate.createBlogReview);
-  const styleProfile = useQuery(api.styleProfiles.getMyStyleProfile);
-  const upsertStyleProfile = useMutation(api.styleProfiles.upsertMyStyleProfile);
-  const isStyleProfileLoading = styleProfile === undefined;
 
-  useEffect(() => {
-    if (!styleProfile) return;
-    setOpeningMode(styleProfile.openingMode);
-    setFixedOpening(styleProfile.fixedOpening ?? "");
-  }, [styleProfile]);
-
-  const handleImagesChange = useCallback((urls: string[], ready: boolean) => {
-    dispatch({ type: "SET_IMAGES", imageUrls: urls, allReady: ready });
+  const handleImagesChange = useCallback((images: UploadedImage[], ready: boolean) => {
+    dispatch({ type: "SET_IMAGES", images, allReady: ready });
   }, []);
 
   const handleGenerate = async () => {
-    if (state.step !== "upload" || state.imageUrls.length === 0) return;
+    if (state.step !== "upload" || state.images.length === 0) return;
     const previousUploadState = {
-      imageUrls: [...state.imageUrls],
+      images: [...state.images],
       allReady: state.allReady,
     };
 
@@ -96,12 +84,19 @@ export default function GeneratePage() {
         .map((k) => k.trim())
         .filter((k) => k.length > 0);
 
+      const imageUrls = state.images.map((image) => image.url);
+      const imageStorageIds = state.images.map((image) => image.storageId);
+
       let result: GenerationResult;
-      if (state.imageUrls.length === SINGLE_IMAGE_COUNT) {
-        result = await createBlogFromImage({ imageUrl: state.imageUrls[0] });
+      if (state.images.length === SINGLE_IMAGE_COUNT) {
+        result = await createBlogFromImage({
+          imageUrl: imageUrls[0],
+          imageStorageId: imageStorageIds[0],
+        });
       } else {
         result = await createBlogReview({
-          imageUrls: state.imageUrls,
+          imageUrls,
+          imageStorageIds,
           memo: memo.trim() || undefined,
           keywords: keywords.length > 0 ? keywords : undefined,
         });
@@ -111,13 +106,13 @@ export default function GeneratePage() {
         if (result.retryable) {
           dispatch({
             type: "RESTORE_UPLOAD",
-            imageUrls: previousUploadState.imageUrls,
+            images: previousUploadState.images,
             allReady: previousUploadState.allReady,
           });
         } else {
           dispatch({ type: "RESET" });
         }
-        toast.error(`[${result.failedStage}] ${result.message}`);
+        toast.error(`[${result.failedStage}:${result.code}] ${result.message}`);
         return;
       }
 
@@ -125,7 +120,7 @@ export default function GeneratePage() {
     } catch (e) {
       dispatch({
         type: "RESTORE_UPLOAD",
-        imageUrls: previousUploadState.imageUrls,
+        images: previousUploadState.images,
         allReady: previousUploadState.allReady,
       });
       toast.error(
@@ -134,36 +129,11 @@ export default function GeneratePage() {
     }
   };
 
-  const handleSaveStyleProfile = async () => {
-    if (isStyleProfileLoading) {
-      toast.error("문체 설정을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
-      return;
-    }
-    if (openingMode === "strict" && fixedOpening.trim().length === 0) {
-      toast.error("strict 모드에서는 고정 시작문을 입력해 주세요.");
-      return;
-    }
-    setSavingProfile(true);
-    try {
-      await upsertStyleProfile({
-        openingMode,
-        fixedOpening: fixedOpening.trim() || undefined,
-      });
-      toast.success("문체 설정을 저장했습니다.");
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "문체 설정 저장 중 오류가 발생했습니다."
-      );
-    } finally {
-      setSavingProfile(false);
-    }
-  };
-
   const canGenerate =
     state.step === "upload" &&
     state.allReady &&
-    state.imageUrls.length > 0 &&
-    state.imageUrls.length <= REVIEW_MAX_IMAGE_COUNT;
+    state.images.length > 0 &&
+    state.images.length <= REVIEW_MAX_IMAGE_COUNT;
 
   if (state.step === "upload") {
     return (
@@ -174,6 +144,9 @@ export default function GeneratePage() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           이미지 1장이면 단일 글, {REVIEW_MIN_IMAGE_COUNT}~{REVIEW_MAX_IMAGE_COUNT}
           장이면 리뷰 글을 생성합니다.
+        </p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          문체 설정은 프로필 탭에서 관리합니다.
         </p>
         <ImageUploader onImagesChange={handleImagesChange} />
         <textarea
@@ -190,53 +163,13 @@ export default function GeneratePage() {
           placeholder="키워드(쉼표 구분, 선택)"
           className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 placeholder-zinc-400 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder-zinc-500 dark:focus:border-zinc-500"
         />
-        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/60">
-          <p className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-            도입구/문체 설정
-          </p>
-          <div className="mb-2 grid grid-cols-3 gap-2 text-xs">
-            {(["off", "preferred", "strict"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setOpeningMode(mode)}
-                className={`rounded border px-2 py-1 ${
-                  openingMode === mode
-                    ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                    : "border-zinc-300 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                }`}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
-          <input
-            type="text"
-            value={fixedOpening}
-            onChange={(e) => setFixedOpening(e.target.value)}
-            placeholder="예: 안녕하세요! 맛집 다니는 유자입니다🥰"
-            className="mb-2 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 placeholder-zinc-400 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder-zinc-500 dark:focus:border-zinc-500"
-          />
-          <button
-            type="button"
-            onClick={handleSaveStyleProfile}
-            disabled={savingProfile || isStyleProfileLoading}
-            className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-          >
-            {savingProfile
-              ? "저장 중..."
-              : isStyleProfileLoading
-                ? "문체 설정 로딩 중..."
-                : "문체 설정 저장"}
-          </button>
-        </div>
         <button
           onClick={handleGenerate}
           disabled={!canGenerate}
           className="w-full rounded-lg bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
-          {state.imageUrls.length > 0
-            ? `${state.imageUrls.length}장의 이미지로 글 생성하기`
+          {state.images.length > 0
+            ? `${state.images.length}장의 이미지로 글 생성하기`
             : "이미지를 업로드해 주세요"}
         </button>
       </div>

@@ -1,9 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  composeReviewDraftStage,
   getReviewDraftLengthViolation,
   getSingleDraftLengthViolation,
   hasDraftFormatViolation,
 } from "../../convex/generateDraft";
+
+const defaultStyleProfile = {
+  openingMode: "off" as const,
+  openerPatterns: [],
+  toneKeywords: [],
+  confidence: 0,
+};
+type ReviewDraftStageAi = Parameters<typeof composeReviewDraftStage>[0];
 
 describe("draft format contract", () => {
   it("detects leaked analysis labels and markdown list", () => {
@@ -51,5 +60,44 @@ describe("draft format contract", () => {
     expect(violation === null).toBe(false);
     expect(violation?.field).toBe("caption");
     expect(violation?.index).toBe(1);
+  });
+
+  it("continues with empty caption fallback when review caption count mismatches", async () => {
+    const ai = {
+      chat: {
+        completions: {
+          create: vi.fn().mockResolvedValue({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    intro: "도입",
+                    captions: ["첫 번째 캡션만 제공"],
+                    outro: "마무리",
+                  }),
+                },
+              },
+            ],
+          }),
+        },
+      },
+    } as unknown as ReviewDraftStageAi;
+
+    const result = await composeReviewDraftStage(
+      ai,
+      [
+        { url: "https://example.com/1.jpg", observation: "관찰1", position: 0 },
+        { url: "https://example.com/2.jpg", observation: "관찰2", position: 1 },
+      ],
+      [],
+      defaultStyleProfile
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.imageBlocks).toHaveLength(2);
+      expect(result.imageBlocks[0]?.caption).toBe("첫 번째 캡션만 제공");
+      expect(result.imageBlocks[1]?.caption).toBe("");
+    }
   });
 });

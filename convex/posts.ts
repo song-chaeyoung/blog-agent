@@ -9,6 +9,16 @@ import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import OpenAI from "openai";
 
+function isStorageDeleteNotFoundError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes("not found") ||
+    message.includes("404") ||
+    message.includes("does not exist")
+  );
+}
+
 /**
  * 글을 저장하고 summary/embedding 생성 action을 스케줄링합니다.
  */
@@ -333,6 +343,45 @@ export const deletePost = mutation({
     const post = await ctx.db.get(args.postId);
     if (!post || post.userId !== user._id) {
       throw new Error("삭제 권한이 없습니다.");
+    }
+
+    const storageIds = [
+      ...(post.imageStorageId ? [post.imageStorageId] : []),
+      ...(post.imageStorageIds ?? []),
+    ];
+    const uniqueStorageIds = Array.from(new Set(storageIds));
+    const now = Date.now();
+
+    for (const storageId of uniqueStorageIds) {
+      let canMarkDeleted = false;
+      try {
+        await ctx.storage.delete(storageId);
+        canMarkDeleted = true;
+      } catch (error) {
+        if (isStorageDeleteNotFoundError(error)) {
+          canMarkDeleted = true;
+        } else {
+          console.error("[deletePost] storage delete failed; image upload row kept", {
+            storageId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          continue;
+        }
+      }
+
+      const upload = await ctx.db
+        .query("imageUploads")
+        .withIndex("by_storage_id", (q) => q.eq("storageId", storageId))
+        .unique();
+
+      if (upload && canMarkDeleted) {
+        await ctx.db.patch(upload._id, {
+          status: "deleted",
+          updatedAt: now,
+          expiresAt: now,
+          attachedPostId: undefined,
+        });
+      }
     }
 
     await ctx.db.delete(args.postId);

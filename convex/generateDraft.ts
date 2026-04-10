@@ -241,12 +241,14 @@ export async function composeReviewDraftStage(
     .map((r, i) => `[참고 요약 ${i + 1}]\n${r.summary}`)
     .join("\n\n");
   const expectedOpening = getExpectedOpening(styleProfile);
+  const requiredCaptionCount = observations.length;
   const openingRule =
     styleProfile.openingMode === "off"
       ? "도입구 강제 규칙은 없습니다."
       : styleProfile.openingMode === "preferred"
       ? `가능하면 intro 첫 줄을 "${expectedOpening ?? ""}"로 시작하세요.`
       : `intro 첫 줄은 반드시 "${expectedOpening ?? ""}"와 정확히 일치해야 합니다.`;
+  let rawResponse = "";
 
   try {
     const response = await ai.chat.completions.create({
@@ -255,7 +257,7 @@ export async function composeReviewDraftStage(
         {
           role: "system",
           content:
-            `한국어 리뷰 글을 JSON으로 작성하세요. 형식: {"intro":"", "captions":[""], "outro":""}. 각 필드는 markdown 없이 일반 줄글이어야 하며, 분석 템플릿 라벨(상황/분위기/감정), 목록(-,*), 제목(#)을 포함하면 안 됩니다. 길이 제한은 intro ${REVIEW_INTRO_MAX_CHARS}자 이하, caption ${REVIEW_CAPTION_MAX_CHARS}자 이하, outro ${REVIEW_OUTRO_MAX_CHARS}자 이하입니다. ${openingRule}`,
+            `한국어 리뷰 글을 JSON으로 작성하세요. 형식: {"intro":"", "captions":[""], "outro":""}. 각 필드는 markdown 없이 일반 줄글이어야 하며, 분석 템플릿 라벨(상황/분위기/감정), 목록(-,*), 제목(#)을 포함하면 안 됩니다. 길이 제한은 intro ${REVIEW_INTRO_MAX_CHARS}자 이하, caption ${REVIEW_CAPTION_MAX_CHARS}자 이하, outro ${REVIEW_OUTRO_MAX_CHARS}자 이하입니다. captions 배열 길이는 정확히 ${requiredCaptionCount}개여야 하며 입력 이미지 순서와 1:1 대응해야 합니다. 부족/초과 없이 정확히 ${requiredCaptionCount}개의 caption을 반환하세요. ${openingRule}`,
         },
         {
           role: "user",
@@ -263,15 +265,15 @@ export async function composeReviewDraftStage(
             keywords && keywords.length > 0
               ? `[키워드]\n${keywords.join(", ")}\n\n`
               : ""
-          }${observationText}\n\n${referenceTexts}\n\n[작성 규칙]\n- intro, caption, outro는 내부 레이블 없이 자연스러운 문장으로 작성하세요.\n- 관찰 결과를 그대로 복사하지 말고 사용자 글처럼 재구성하세요.`,
+          }${observationText}\n\n${referenceTexts}\n\n[작성 규칙]\n- intro, caption, outro는 내부 레이블 없이 자연스러운 문장으로 작성하세요.\n- 관찰 결과를 그대로 복사하지 말고 사용자 글처럼 재구성하세요.\n- captions는 반드시 ${requiredCaptionCount}개를 반환하고, [이미지 1]부터 [이미지 ${requiredCaptionCount}]까지 순서대로 1:1 대응하세요.\n- captions가 부족하거나 초과하면 응답 전에 스스로 보정해 정확히 ${requiredCaptionCount}개로 맞추세요.`,
         },
       ],
       response_format: { type: "json_object" },
       max_tokens: REVIEW_MAX_TOKENS,
     });
 
-    const raw = response.choices[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(raw) as {
+    rawResponse = response.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(rawResponse) as {
       intro?: string;
       captions?: string[];
       outro?: string;
@@ -280,6 +282,11 @@ export async function composeReviewDraftStage(
     const intro = (parsed.intro ?? "").trim();
     const outro = (parsed.outro ?? "").trim();
     const captions = (parsed.captions ?? []).map((caption) => caption.trim());
+    console.info("[composeReviewDraftStage] parsed review response", {
+      observationCount: observations.length,
+      captionCount: captions.length,
+      hasResponseBody: rawResponse.length > 0,
+    });
 
     if (!intro && !outro && captions.length === 0) {
       return fail(
@@ -291,42 +298,13 @@ export async function composeReviewDraftStage(
     }
 
     if (captions.length !== observations.length) {
-      return fail(
-        "final-draft",
-        "CAPTION_COUNT_MISMATCH",
-        "이미지 수와 캡션 수가 일치하지 않습니다.",
-        true
+      console.warn(
+        "[composeReviewDraftStage] caption count mismatch; continue with empty caption fallback",
+        {
+          observationCount: observations.length,
+          captionCount: captions.length,
+        }
       );
-    }
-
-    const formatCandidates = [intro, outro, ...captions];
-    const hasViolation = formatCandidates.some((text) => hasDraftFormatViolation(text));
-    if (hasViolation) {
-      return fail(
-        "final-draft",
-        "DRAFT_FORMAT_VIOLATION",
-        "리뷰 글 형식이 요구사항을 만족하지 않습니다. 분석 템플릿 라벨이나 markdown 목록 없이 일반 줄글로 생성해 주세요.",
-        true
-      );
-    }
-
-    const lengthViolation = getReviewDraftLengthViolation(intro, outro, captions);
-    if (lengthViolation) {
-      const suffix =
-        lengthViolation.field === "caption" && typeof lengthViolation.index === "number"
-          ? ` (caption ${lengthViolation.index + 1})`
-          : "";
-      return fail(
-        "final-draft",
-        "DRAFT_TOO_LONG",
-        `${lengthViolation.field}${suffix} 길이가 ${lengthViolation.max}자를 초과했습니다. (${lengthViolation.actual}자)`,
-        true
-      );
-    }
-
-    const openingFailure = ensureOpeningConstraint(intro, styleProfile);
-    if (openingFailure) {
-      return openingFailure;
     }
 
     const imageBlocks = observations.map((observation, index) => ({
@@ -337,8 +315,41 @@ export async function composeReviewDraftStage(
       .filter((item) => item.length > 0)
       .join("\n\n");
 
+    const formatFailure = ensureDraftFormat(content);
+    if (formatFailure) {
+      return formatFailure;
+    }
+
+    const lengthViolation = getReviewDraftLengthViolation(
+      intro,
+      outro,
+      imageBlocks.map((block) => block.caption)
+    );
+    if (lengthViolation) {
+      const targetField =
+        lengthViolation.field === "caption"
+          ? `caption[${(lengthViolation.index ?? 0) + 1}]`
+          : lengthViolation.field;
+      return fail(
+        "final-draft",
+        "DRAFT_TOO_LONG",
+        `Review draft ${targetField} exceeded ${lengthViolation.max} characters (${lengthViolation.actual}).`,
+        true
+      );
+    }
+
+    const openingFailure = ensureOpeningConstraint(content, styleProfile);
+    if (openingFailure) {
+      return openingFailure;
+    }
+
     return { ok: true, content, intro, outro, imageBlocks };
-  } catch {
+  } catch (error) {
+    console.error("[composeReviewDraftStage] failed to parse/generate review draft", {
+      observationCount: observations.length,
+      hasResponseBody: rawResponse.length > 0,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return fail(
       "final-draft",
       "DRAFT_PARSE_FAILED",

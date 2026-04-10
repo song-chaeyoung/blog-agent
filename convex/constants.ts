@@ -27,3 +27,7 @@ export const SINGLE_IMAGE_COUNT = 1;
 export const REVIEW_MIN_IMAGE_COUNT = 2;
 export const REVIEW_MAX_IMAGE_COUNT = 20;
 export const MAX_KEYWORDS = 10;
+
+// 업로드 수명
+export const TEMP_UPLOAD_TTL_MS = 1000 * 60 * 60 * 24; // 24시간
+export const TEMP_UPLOAD_CLEANUP_BATCH = 200;
