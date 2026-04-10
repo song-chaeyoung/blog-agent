@@ -142,7 +142,7 @@ GenerationFailure
 정책:
 
 - 조회 실패/프로필 없음은 `openingMode = "off"`로 폴백
-- strict에서 기대 시작문 계산 불가 시 실패
+- `openingMode = "strict"`인데 `fixedOpening`이 비어 있으면 실패 대신 `openingMode = "off"`로 폴백
 
 ### `image-analysis`
 
@@ -217,7 +217,7 @@ GenerationFailure
 실패 조건:
 
 - 빈 응답 또는 파싱 실패
-- 단일 글: 형식 위반, 길이 정책 위반, strict 시작문 위반
+- 단일 글: 형식 위반, 길이 정책 위반, `openingMode = "strict"`이고 `fixedOpening`이 존재할 때 시작문 위반
 - 리뷰 글: `intro/outro/captions`가 모두 비어 있을 때만 `DRAFT_EMPTY` 실패
 
 길이 계산 규칙:
@@ -252,5 +252,5 @@ GenerationFailure
 
 ## 4) Frontend Type Impact
 
-- [`src/types/post.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/src/types/post.ts)는 `GenerationFailure` 유니온을 계속 유지해야 한다.
-- [`src/app/(main)/generate/page.tsx`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/src/app/(main)/generate/page.tsx)는 `failedStage`/`retryable`에 따라 reset 또는 업로드 상태 복원을 분기해야 한다.
+- [`src/types/post.ts`](../../../src/types/post.ts)는 `GenerationFailure` 유니온을 계속 유지해야 한다.
+- [`src/app/(main)/generate/page.tsx`](../../../src/app/(main)/generate/page.tsx)는 `failedStage`/`retryable`에 따라 reset 또는 업로드 상태 복원을 분기해야 한다.
