@@ -5,7 +5,7 @@ import { useAction } from "convex/react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
-import ImageUploader from "@/components/image-uploader";
+import ImageUploader, { type UploadedImage } from "@/components/image-uploader";
 import type { GenerationResult, ResultData } from "@/types/post";
 import { useResultEditor } from "@/hooks/useResultEditor";
 import {
@@ -15,20 +15,20 @@ import {
 } from "../../../../convex/constants";
 
 type PageState =
-  | { step: "upload"; imageUrls: string[]; allReady: boolean }
+  | { step: "upload"; images: UploadedImage[]; allReady: boolean }
   | { step: "generating"; imageCount: number }
   | { step: "result"; result: ResultData };
 
 type Action =
-  | { type: "SET_IMAGES"; imageUrls: string[]; allReady: boolean }
+  | { type: "SET_IMAGES"; images: UploadedImage[]; allReady: boolean }
   | { type: "START_GENERATING" }
   | { type: "SET_RESULT"; result: ResultData }
-  | { type: "RESTORE_UPLOAD"; imageUrls: string[]; allReady: boolean }
+  | { type: "RESTORE_UPLOAD"; images: UploadedImage[]; allReady: boolean }
   | { type: "RESET" };
 
 const initialState: PageState = {
   step: "upload",
-  imageUrls: [],
+  images: [],
   allReady: false,
 };
 
@@ -38,18 +38,18 @@ function reducer(state: PageState, action: Action): PageState {
       if (state.step !== "upload") return state;
       return {
         ...state,
-        imageUrls: action.imageUrls,
+        images: action.images,
         allReady: action.allReady,
       };
     case "START_GENERATING":
       if (state.step !== "upload") return state;
-      return { step: "generating", imageCount: state.imageUrls.length };
+      return { step: "generating", imageCount: state.images.length };
     case "SET_RESULT":
       return { step: "result", result: action.result };
     case "RESTORE_UPLOAD":
       return {
         step: "upload",
-        imageUrls: action.imageUrls,
+        images: action.images,
         allReady: action.allReady,
       };
     case "RESET":
@@ -66,14 +66,14 @@ export default function GeneratePage() {
   const createBlogFromImage = useAction(api.generate.createBlogFromImage);
   const createBlogReview = useAction(api.generate.createBlogReview);
 
-  const handleImagesChange = useCallback((urls: string[], ready: boolean) => {
-    dispatch({ type: "SET_IMAGES", imageUrls: urls, allReady: ready });
+  const handleImagesChange = useCallback((images: UploadedImage[], ready: boolean) => {
+    dispatch({ type: "SET_IMAGES", images, allReady: ready });
   }, []);
 
   const handleGenerate = async () => {
-    if (state.step !== "upload" || state.imageUrls.length === 0) return;
+    if (state.step !== "upload" || state.images.length === 0) return;
     const previousUploadState = {
-      imageUrls: [...state.imageUrls],
+      images: [...state.images],
       allReady: state.allReady,
     };
 
@@ -84,12 +84,19 @@ export default function GeneratePage() {
         .map((k) => k.trim())
         .filter((k) => k.length > 0);
 
+      const imageUrls = state.images.map((image) => image.url);
+      const imageStorageIds = state.images.map((image) => image.storageId);
+
       let result: GenerationResult;
-      if (state.imageUrls.length === SINGLE_IMAGE_COUNT) {
-        result = await createBlogFromImage({ imageUrl: state.imageUrls[0] });
+      if (state.images.length === SINGLE_IMAGE_COUNT) {
+        result = await createBlogFromImage({
+          imageUrl: imageUrls[0],
+          imageStorageId: imageStorageIds[0],
+        });
       } else {
         result = await createBlogReview({
-          imageUrls: state.imageUrls,
+          imageUrls,
+          imageStorageIds,
           memo: memo.trim() || undefined,
           keywords: keywords.length > 0 ? keywords : undefined,
         });
@@ -99,13 +106,13 @@ export default function GeneratePage() {
         if (result.retryable) {
           dispatch({
             type: "RESTORE_UPLOAD",
-            imageUrls: previousUploadState.imageUrls,
+            images: previousUploadState.images,
             allReady: previousUploadState.allReady,
           });
         } else {
           dispatch({ type: "RESET" });
         }
-        toast.error(`[${result.failedStage}] ${result.message}`);
+        toast.error(`[${result.failedStage}:${result.code}] ${result.message}`);
         return;
       }
 
@@ -113,7 +120,7 @@ export default function GeneratePage() {
     } catch (e) {
       dispatch({
         type: "RESTORE_UPLOAD",
-        imageUrls: previousUploadState.imageUrls,
+        images: previousUploadState.images,
         allReady: previousUploadState.allReady,
       });
       toast.error(
@@ -125,8 +132,8 @@ export default function GeneratePage() {
   const canGenerate =
     state.step === "upload" &&
     state.allReady &&
-    state.imageUrls.length > 0 &&
-    state.imageUrls.length <= REVIEW_MAX_IMAGE_COUNT;
+    state.images.length > 0 &&
+    state.images.length <= REVIEW_MAX_IMAGE_COUNT;
 
   if (state.step === "upload") {
     return (
@@ -161,8 +168,8 @@ export default function GeneratePage() {
           disabled={!canGenerate}
           className="w-full rounded-lg bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
-          {state.imageUrls.length > 0
-            ? `${state.imageUrls.length}장의 이미지로 글 생성하기`
+          {state.images.length > 0
+            ? `${state.images.length}장의 이미지로 글 생성하기`
             : "이미지를 업로드해 주세요"}
         </button>
       </div>

@@ -59,6 +59,7 @@ export const saveGeneratedPost = internalMutation({
     userId: v.id("users"),
     content: v.string(),
     imageUrl: v.string(),
+    imageStorageId: v.optional(v.id("_storage")),
     references: v.optional(
       v.array(
         v.object({
@@ -75,8 +76,21 @@ export const saveGeneratedPost = internalMutation({
       content: args.content,
       summaryStatus: "pending",
       imageUrl: args.imageUrl,
+      imageStorageId: args.imageStorageId,
       references: args.references,
     });
+
+    if (args.imageStorageId) {
+      try {
+        await ctx.runMutation(internal.images.markImagesAttached, {
+          userId: args.userId,
+          postId,
+          storageIds: [args.imageStorageId],
+        });
+      } catch {
+        // 본문 저장은 유지하고, temp 정리는 TTL/삭제 경로에서 보완합니다.
+      }
+    }
 
     await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
       postId,
@@ -99,6 +113,7 @@ export const saveGeneratedReviewPost = internalMutation({
         caption: v.string(),
       })
     ),
+    imageStorageIds: v.optional(v.array(v.id("_storage"))),
     intro: v.string(),
     outro: v.string(),
     references: v.optional(
@@ -117,10 +132,23 @@ export const saveGeneratedReviewPost = internalMutation({
       content: args.content,
       summaryStatus: "pending",
       imageBlocks: args.imageBlocks,
+      imageStorageIds: args.imageStorageIds,
       intro: args.intro,
       outro: args.outro,
       references: args.references,
     });
+
+    if (args.imageStorageIds && args.imageStorageIds.length > 0) {
+      try {
+        await ctx.runMutation(internal.images.markImagesAttached, {
+          userId: args.userId,
+          postId,
+          storageIds: args.imageStorageIds,
+        });
+      } catch {
+        // 본문 저장은 유지하고, temp 정리는 TTL/삭제 경로에서 보완합니다.
+      }
+    }
 
     await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
       postId,

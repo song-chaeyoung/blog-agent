@@ -335,6 +335,35 @@ export const deletePost = mutation({
       throw new Error("삭제 권한이 없습니다.");
     }
 
+    const storageIds = [
+      ...(post.imageStorageId ? [post.imageStorageId] : []),
+      ...(post.imageStorageIds ?? []),
+    ];
+    const uniqueStorageIds = Array.from(new Set(storageIds));
+    const now = Date.now();
+
+    for (const storageId of uniqueStorageIds) {
+      try {
+        await ctx.storage.delete(storageId);
+      } catch {
+        // storage에 객체가 없거나 이미 삭제된 경우여도 DB 정리는 진행합니다.
+      }
+
+      const upload = await ctx.db
+        .query("imageUploads")
+        .withIndex("by_storage_id", (q) => q.eq("storageId", storageId))
+        .unique();
+
+      if (upload) {
+        await ctx.db.patch(upload._id, {
+          status: "deleted",
+          updatedAt: now,
+          expiresAt: now,
+          attachedPostId: undefined,
+        });
+      }
+    }
+
     await ctx.db.delete(args.postId);
   },
 });

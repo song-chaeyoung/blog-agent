@@ -3,15 +3,21 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { MAX_FILE_SIZE, ACCEPTED_TYPES, MAX_IMAGES } from "../constants";
+
+export type UploadedImage = {
+  url: string;
+  storageId: Id<"_storage">;
+};
 
 type ImageItem =
   | { status: "uploading"; localPreview: string }
-  | { status: "done"; localPreview: string; url: string }
+  | { status: "done"; localPreview: string; url: string; storageId: Id<"_storage"> }
   | { status: "error"; localPreview: string; message: string };
 
 interface ImageUploaderProps {
-  onImagesChange: (urls: string[], allReady: boolean) => void;
+  onImagesChange: (images: UploadedImage[], allReady: boolean) => void;
   maxImages?: number;
 }
 
@@ -21,6 +27,7 @@ export default function ImageUploader({
 }: ImageUploaderProps) {
   const generateUploadUrl = useMutation(api.images.generateUploadUrl);
   const getImageUrl = useMutation(api.images.getImageUrl);
+  const deleteTempImage = useMutation(api.images.deleteTempImage);
   const [images, setImages] = useState<ImageItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -34,7 +41,7 @@ export default function ImageUploader({
     const allReady =
       images.length > 0 && images.every((img) => img.status === "done");
     onImagesChange(
-      doneItems.map((img) => img.url),
+      doneItems.map((img) => ({ url: img.url, storageId: img.storageId })),
       allReady
     );
   }, [images, onImagesChange]);
@@ -51,7 +58,7 @@ export default function ImageUploader({
         if (!res.ok) throw new Error("업로드 실패");
 
         const { storageId } = await res.json();
-        const imageUrl = await getImageUrl({ storageId });
+        const uploaded = await getImageUrl({ storageId });
 
         setImages((prev) => {
           const updated = [...prev];
@@ -59,7 +66,8 @@ export default function ImageUploader({
             updated[index] = {
               status: "done",
               localPreview: updated[index].localPreview,
-              url: imageUrl,
+              url: uploaded.url,
+              storageId: uploaded.storageId,
             };
           }
           return updated;
@@ -140,13 +148,19 @@ export default function ImageUploader({
 
   const removeImage = useCallback(
     (index: number) => {
+      const removedItem = images[index];
       setImages((prev) => {
-        const item = prev[index];
-        if (item) URL.revokeObjectURL(item.localPreview);
+        if (removedItem) URL.revokeObjectURL(removedItem.localPreview);
         return prev.filter((_, i) => i !== index);
       });
+
+      if (removedItem?.status === "done") {
+        void deleteTempImage({ storageId: removedItem.storageId }).catch(() => {
+          // 업로더에서 이미 제거된 상태이므로 UI는 유지하고 서버 정리는 TTL에 맡깁니다.
+        });
+      }
     },
-    []
+    [images, deleteTempImage]
   );
 
   const moveImage = useCallback(

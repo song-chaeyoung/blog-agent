@@ -5,6 +5,7 @@ import {
   SINGLE_IMAGE_COUNT,
 } from "./constants";
 import { fail, type GenerationFailure } from "./generateTypes";
+import type { Id } from "./_generated/dataModel";
 
 export function validateSingleImageRequest(
   imageUrl: string
@@ -23,12 +24,14 @@ export function validateSingleImageRequest(
 
 export function normalizeReviewRequest(input: {
   imageUrls: string[];
+  imageStorageIds?: Id<"_storage">[];
   memo?: string;
   keywords?: string[];
 }):
   | {
       ok: true;
       imageUrls: string[];
+      imageStorageIds?: Id<"_storage">[];
       memo?: string;
       keywords?: string[];
     }
@@ -55,6 +58,19 @@ export function normalizeReviewRequest(input: {
     );
   }
 
+  if (
+    input.imageStorageIds &&
+    input.imageStorageIds.length > 0 &&
+    input.imageStorageIds.length !== imageUrls.length
+  ) {
+    return fail(
+      "summary-preparation",
+      "INVALID_IMAGE_STORAGE_COUNT",
+      "이미지 URL 수와 storageId 수가 일치하지 않습니다.",
+      false
+    );
+  }
+
   const memo = input.memo?.trim();
   const normalizedMemo = memo ? memo : undefined;
   const normalizedKeywords = (input.keywords ?? [])
@@ -65,6 +81,10 @@ export function normalizeReviewRequest(input: {
   return {
     ok: true,
     imageUrls,
+    imageStorageIds:
+      input.imageStorageIds && input.imageStorageIds.length > 0
+        ? input.imageStorageIds
+        : undefined,
     memo: normalizedMemo,
     keywords: normalizedKeywords.length > 0 ? normalizedKeywords : undefined,
   };

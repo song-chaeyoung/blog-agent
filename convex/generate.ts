@@ -90,7 +90,10 @@ async function prepareStyleProfileStage(
 }
 
 export const createBlogFromImage = action({
-  args: { imageUrl: v.string() },
+  args: {
+    imageUrl: v.string(),
+    imageStorageId: v.optional(v.id("_storage")),
+  },
   handler: async (ctx, args): Promise<GenerationResult> => {
     const validated = validateSingleImageRequest(args.imageUrl);
     if (!validated.ok) {
@@ -139,6 +142,7 @@ export const createBlogFromImage = action({
         userId: auth.userId,
         content: draft.content,
         imageUrl: validated.imageUrl,
+        imageStorageId: args.imageStorageId,
         references: rag.references ?? [],
       });
     } catch {
@@ -164,6 +168,7 @@ export const createBlogFromImage = action({
 export const createBlogReview = action({
   args: {
     imageUrls: v.array(v.string()),
+    imageStorageIds: v.optional(v.array(v.id("_storage"))),
     memo: v.optional(v.string()),
     keywords: v.optional(v.array(v.string())),
   },
@@ -219,6 +224,7 @@ export const createBlogReview = action({
           userId: auth.userId,
           content: draft.content,
           imageBlocks: draft.imageBlocks,
+          imageStorageIds: normalized.imageStorageIds,
           intro: draft.intro,
           outro: draft.outro,
           references: rag.references ?? [],
