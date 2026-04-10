@@ -159,3 +159,27 @@ export const saveGeneratedReviewPost = internalMutation({
     return postId;
   },
 });
+
+/** 최근 작성된 글 목록 조회 */
+export const getRecentPosts = internalQuery({
+  args: { userId: v.id("users"), limit: v.number() },
+  handler: async (ctx, args) => {
+    const posts = await ctx.db
+      .query("posts")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .take(args.limit);
+    return posts;
+  },
+});
+
+/** 사용자 문체 프로필 갱신 */
+export const updateStyleProfile = internalMutation({
+  args: { userId: v.id("users"), styleProfile: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, {
+      styleProfile: args.styleProfile,
+      styleUpdatedAt: Date.now(),
+    });
+  },
+});

@@ -66,7 +66,6 @@ export default defineSchema({
       )
     ),
     embedding: v.optional(v.array(v.float64())),
-    summary: v.optional(v.string()), // 📝 글 요약 (RAG용)
   })
   .index("by_userId", ["userId"])
   .vectorIndex("by_embedding", {
