@@ -163,25 +163,20 @@ export default function ImageUploader({
 
   const removeImage = useCallback(
     (index: number) => {
-      let removedItem: Extract<ImageItem, { status: "done" }> | null = null;
-      setImages((prev) => {
-        const item = prev[index];
-        if (item) {
-          URL.revokeObjectURL(item.localPreview);
-          if (item.status === "done") {
-            removedItem = item;
-          }
-        }
-        return prev.filter((_, i) => i !== index);
-      });
+      const item = images[index];
+      if (!item) return;
 
-      if (removedItem) {
-        void deleteTempImage({ storageId: removedItem.storageId }).catch(() => {
+      URL.revokeObjectURL(item.localPreview);
+
+      if (item.status === "done") {
+        void deleteTempImage({ storageId: item.storageId }).catch(() => {
           // 업로더에서 이미 제거된 상태이므로 UI는 유지하고 서버 정리는 TTL에 맡깁니다.
         });
       }
+
+      setImages((prev) => prev.filter((_, i) => i !== index));
     },
-    [deleteTempImage]
+    [deleteTempImage, images]
   );
 
   const moveImage = useCallback(
