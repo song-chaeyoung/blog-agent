@@ -1,178 +1,181 @@
 # Data Model: 단계 분리형 AI 블로그 생성 재정의
 
-## 개요
+## 목적
 
-이번 기능의 핵심 데이터 변경은 "원문 기반 재사용"을 "요약 기반 재사용"으로 바꾸는 것이다. 따라서 영속 데이터는 `posts.summary` 계열 필드가 중심이 되고, 생성 파이프라인의 스테이지 결과는 API 계약 객체로 주고받되 필요 최소한만 저장한다.
+핵심 모델링 목표는 다음 두 가지입니다.
+
+1. 생성 파이프라인의 단계별 성공/실패를 계약으로 명확히 표현한다.
+2. 과거 글 재사용 기준을 원문에서 `summary` 중심으로 전환한다.
 
 ## 영속 엔티티
 
-### 1. User
-
-기존 `users` 테이블을 유지한다.
+### 1) `users`
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `_id` | `Id<"users">` | Convex 문서 ID |
-| `tokenIdentifier` | `string` | Clerk identity 기준 고유 식별자 |
-| `name` | `string` | 표시 이름 |
-| `email` | `string` | 사용자 이메일 |
+| `_id` | `Id<"users">` | 사용자 문서 ID |
+| `tokenIdentifier` | `string` | Clerk identity 고유값 |
+| `name` | `string` | 사용자명 |
+| `email` | `string` | 이메일 |
 | `imageUrl` | `string?` | 프로필 이미지 |
 | `provider` | `string?` | 인증 제공자 |
 
-**인덱스**
+인덱스: `by_token(tokenIdentifier)`
 
-- `by_token(tokenIdentifier)`
-
-### 2. Post
-
-기존 `posts` 테이블을 확장한다.
+### 2) `styleProfiles`
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `_id` | `Id<"posts">` | Convex 문서 ID |
-| `userId` | `Id<"users">` | 글 소유 사용자 |
-| `content` | `string` | 최종 저장 본문 |
-| `summary` | `string?` | RAG와 문체 참고에 사용하는 축약 요약 |
-| `embedding` | `float64[]?` | `summary` 기반 검색 벡터 |
-| `summaryStatus` | `"pending" \| "ready" \| "failed"` | 요약 생성 상태 |
-| `summaryError` | `string?` | 마지막 요약 생성 실패 사유 |
-| `summaryUpdatedAt` | `number?` | 요약 최신화 시각(ms epoch) |
-| `imageUrl` | `string?` | 단일 이미지 글의 대표 이미지 |
-| `imageBlocks` | `{ url: string; caption: string }[]?` | 리뷰 글의 이미지-캡션 쌍 |
-| `intro` | `string?` | 리뷰 글 도입부 |
-| `outro` | `string?` | 리뷰 글 마무리 |
-
-**인덱스 / 벡터 인덱스**
-
-- `by_embedding(embedding)` + `filterFields: ["userId"]`
-- 필요 시 관리성 강화를 위해 `by_user_summary_status(userId, summaryStatus)` 일반 인덱스 추가
-
-**설계 근거**
-
-- 기존 `embedding` 필드 이름은 유지하되, 의미를 원문 기반 벡터에서 `summary` 기반 벡터로 재정의한다.
-- `summaryStatus`와 `summaryError`는 요약 백그라운드 작업의 성공/실패를 사용자가 볼 수 있는 형태로 남기기 위한 최소 상태다.
-
-### 3. StyleProfile
-
-사용자 단위 문체 프로필을 별도 테이블로 관리한다.
-
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `_id` | `Id<"styleProfiles">` | Convex 문서 ID |
+| `_id` | `Id<"styleProfiles">` | 프로필 문서 ID |
 | `userId` | `Id<"users">` | 소유 사용자 |
-| `openingMode` | `"off" \| "preferred" \| "strict"` | 도입구 강제 정책 |
-| `fixedOpening` | `string?` | 사용자 지정 고정 도입구 |
-| `openerPatterns` | `{ text: string; repeatRate: number; occurrences: number; sampleSize: number; lastSeenAt: number }[]` | 반복 시작문 통계 |
-| `toneKeywords` | `string[]?` | 말투/분위기 키워드 |
-| `confidence` | `number` | 프로필 신뢰도(0~1) |
-| `updatedAt` | `number` | 최신 갱신 시각(ms epoch) |
+| `openingMode` | `"off" \| "preferred" \| "strict"` | 도입구 정책 |
+| `fixedOpening` | `string?` | strict/preferred에서 사용할 고정 시작문 |
+| `openerPatterns` | `Array<{ text, repeatRate, occurrences, sampleSize, lastSeenAt }>` | 반복 시작문 통계 |
+| `toneKeywords` | `string[]?` | 문체 키워드 |
+| `confidence` | `number` | 추정 신뢰도 |
+| `updatedAt` | `number` | 수정 시각(ms) |
 
-**인덱스**
+인덱스: `by_user(userId)`
 
-- `by_user(userId)` (1:1 보장 목적)
+### 3) `posts`
 
-**설계 근거**
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `_id` | `Id<"posts">` | 게시글 문서 ID |
+| `userId` | `Id<"users">` | 소유 사용자 |
+| `content` | `string` | 저장 본문 |
+| `summary` | `string?` | RAG 참조용 요약 |
+| `summaryStatus` | `"pending" \| "ready" \| "failed"?` | 요약 생성 상태 |
+| `summaryError` | `string?` | 요약 생성 실패 사유 |
+| `summaryUpdatedAt` | `number?` | 요약 갱신 시각 |
+| `embedding` | `float64[]?` | `summary` 기반 벡터 |
+| `imageUrl` | `string?` | 단일 생성 대표 이미지 |
+| `imageBlocks` | `Array<{ url: string; caption: string }>?` | 리뷰용 이미지-캡션 |
+| `intro` | `string?` | 리뷰 도입부 |
+| `outro` | `string?` | 리뷰 마무리 |
+| `references` | `Array<{ postId, summary, score }>?` | 생성 시 사용한 요약 참조 |
 
-- 문체와 도입구는 게시글 단위보다 사용자 단위 속성이므로 `posts`에 중복 저장하지 않고 `userId` 기준으로 분리한다.
-- `openingMode`는 사용자별 강제 수준이 다르다는 요구(`off/preferred/strict`)를 직접 표현한다.
+벡터 인덱스: `by_embedding` (`dimensions: 1536`, `filterFields: ["userId"]`)
 
 ## 런타임 계약 엔티티
 
-### 4. Summary Generation Job
-
-별도 테이블을 만들지 않고 `posts` 문서 상태로 표현한다.
-
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `postId` | `Id<"posts">` | 요약 대상 게시글 |
-| `status` | `"pending" \| "ready" \| "failed"` | 현재 작업 상태 |
-| `error` | `string?` | 실패 시 원인 |
-| `scheduledBy` | `"create" \| "update" \| "backfill"` | 예약 계기 |
-
-### 5. Image Observation
+### 4) `ImageObservation`
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `url` | `string` | 입력 이미지 URL |
-| `observation` | `string` | 이미지에서 추출한 구조화/서술형 관찰 결과 |
-| `position` | `number` | 다중 이미지 순서 |
+| `observation` | `string` | 이미지 관찰 텍스트 |
+| `position` | `number` | 입력 순서(0-based) |
 
-### 6. RAG Context Bundle
-
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `queryText` | `string` | 이미지 분석을 바탕으로 구성한 검색 질의 |
-| `references` | `ReferenceSummary[]` | 선택된 과거 글 요약 목록 |
-| `selectionReason` | `string` | 참고 묶음의 선택 근거 |
-
-`ReferenceSummary`
+### 5) `ReferenceSummary`
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `postId` | `Id<"posts">` | 참조 게시글 |
-| `summary` | `string` | 저장된 요약 |
+| `postId` | `Id<"posts">` | 참조 게시글 ID |
+| `summary` | `string` | 참조 요약 |
 | `score` | `number` | 유사도 점수 |
 
-### 7. Generation Stage Result
+### 6) `GenerationResult` (공개 API 반환)
 
-모든 스테이지가 공통으로 따르는 반환 규약이다.
+```ts
+type StageName =
+  | "summary-preparation"
+  | "style-profile-preparation"
+  | "image-analysis"
+  | "rag-context"
+  | "final-draft";
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `ok` | `boolean` | 성공 여부 |
-| `stage` | `"summary-preparation" \| "style-profile-preparation" \| "image-analysis" \| "rag-context" \| "final-draft"` | 실행 단계 |
-| `code` | `string?` | 실패 코드 |
-| `message` | `string` | 사용자에게 보여줄 메시지 |
-| `retryable` | `boolean` | 클라이언트 재요청 가능 여부 (`true`여도 서버 내부 자동 재시도는 수행하지 않음) |
-| `data` | `unknown` | 성공 시 단계 산출물 |
+type GenerationFailure = {
+  ok: false;
+  failedStage: StageName;
+  code: string;
+  message: string;
+  retryable: boolean;
+};
+
+type SingleSuccess = {
+  ok: true;
+  stage: "completed";
+  mode: "single";
+  postId: Id<"posts">;
+  content: string;
+  references: ReferenceSummary[];
+};
+
+type ReviewSuccess = {
+  ok: true;
+  stage: "completed";
+  mode: "review";
+  postId: Id<"posts">;
+  content: string;
+  intro: string;
+  outro: string;
+  imageBlocks: Array<{ url: string; caption: string }>;
+  references: ReferenceSummary[];
+};
+```
+
+### 7) `ReviewDraftPayload` (AI 응답 파싱 대상)
+
+```ts
+type ReviewDraftPayload = {
+  intro: string;
+  captions: string[];
+  outro: string;
+};
+```
+
+필수 규칙:
+
+- `intro/outro/captions`가 누락된 경우 빈 값으로 보정하고, 세 필드가 모두 비어 있을 때만 실패
+- `captions.length`가 `imageUrls.length`보다 작으면 누락 인덱스를 빈 캡션으로 채운다
+- `captions[i]`는 입력 `images[i]` 순서에 맞춰 순차 매핑한다
+- 각 caption은 trim 후 빈 문자열이어도 허용한다
+- `count/order/empty` 이슈는 실패 코드 대신 경고 로그로만 기록한다
 
 ## 관계
 
 - `User 1 : N Post`
 - `User 1 : 0..1 StyleProfile`
-- `Post 1 : 0..1 Summary Generation Job 상태`
-- `Generation Request 1 : N Image Observation`
-- `Generation Request 1 : 1 RAG Context Bundle`
+- `Generation Request 1 : N ImageObservation`
+- `Generation Request 1 : N ReferenceSummary`
 
 ## 상태 전이
 
-### Post 요약 상태
+### `posts.summaryStatus`
 
 ```text
-없음/legacy
-  -> pending   (글 생성 또는 수정 직후)
-  -> ready     (요약 + 벡터 생성 성공)
-  -> failed    (요약 또는 임베딩 생성 실패)
-  -> pending   (사용자 수정 또는 재백필)
+undefined/legacy
+  -> pending (create/update/backfill 예약)
+  -> ready   (summary + embedding 생성 성공)
+  -> failed  (summary 또는 embedding 생성 실패)
+  -> pending (재시도/backfill)
 ```
 
-### 생성 요청 상태
+### 생성 요청 단계
 
 ```text
-requested
-  -> summary-preparation succeeded
-  -> style-profile-preparation succeeded
-  -> image-analysis succeeded
-  -> rag-context succeeded
-  -> final-draft succeeded
-  -> saved
+summary-preparation
+  -> style-profile-preparation
+  -> image-analysis
+  -> rag-context
+  -> final-draft
+  -> completed
 
-requested
-  -> any stage failed
-  -> stopped
+any stage failed
+  -> stopped (후속 단계 실행 금지)
 ```
 
 ## 검증 규칙
 
-- `summaryStatus = "ready"`이면 `summary`와 `embedding`이 모두 존재해야 한다.
-- `summaryStatus = "failed"`이면 `summaryError`가 비어 있으면 안 된다.
-- 다중 이미지 요청은 입력 배열의 모든 항목이 성공적으로 분석되어야 다음 단계로 넘어간다.
-- `summary`가 없는 게시글은 RAG 참조 후보에서 제외된다.
-- `rag-context` 성공 결과는 최종 참조 요약이 기본 임계값 3개 이상이어야 한다(임계값은 테스트 결과에 따라 3개 이상 상향 가능).
 - 벡터 검색은 항상 `userId` 필터를 포함해야 한다.
+- `summary` 없는 게시글은 참조 후보에서 제외한다.
+- RAG 참조 수는 기본 3개 이상이어야 한다.
+- 길이 정책은 trim 이후 JavaScript `string.length`로 계산한다.
+- `openingMode = "strict"`면 첫 줄이 `fixedOpening`과 정확히 일치해야 한다.
 
-## 마이그레이션 / 백필 전략
+## 마이그레이션/백필
 
-- 기존 게시글은 초기 배포 직후 `summaryStatus = "pending"` 또는 `undefined` 상태일 수 있다.
-- 백필이 완료되기 전까지 `summary` 없는 게시글은 생성 참조 대상에서 제외한다.
-- 사용자 수정이나 별도 재처리 mutation을 통해 점진적으로 `summary`를 채운다.
+- 초기 배포에서 자동 일괄 백필은 수행하지 않는다.
+- 필요한 경우 `postSummaries.backfillSummary` / `postSummaries.backfillMissingSummaries`로 수동 실행한다.
+- 백필 전까지 `summary`가 없는 글은 생성 참조 대상에서 제외한다.

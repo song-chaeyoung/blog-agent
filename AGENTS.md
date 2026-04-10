@@ -1,6 +1,6 @@
 # blog-agent Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-23
+Auto-generated from all feature plans. Last updated: 2026-04-10
 
 ## Active Technologies
 

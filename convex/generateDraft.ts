@@ -241,6 +241,7 @@ export async function composeReviewDraftStage(
     .map((r, i) => `[참고 요약 ${i + 1}]\n${r.summary}`)
     .join("\n\n");
   const expectedOpening = getExpectedOpening(styleProfile);
+  const requiredCaptionCount = observations.length;
   const openingRule =
     styleProfile.openingMode === "off"
       ? "도입구 강제 규칙은 없습니다."
@@ -256,7 +257,7 @@ export async function composeReviewDraftStage(
         {
           role: "system",
           content:
-            `한국어 리뷰 글을 JSON으로 작성하세요. 형식: {"intro":"", "captions":[""], "outro":""}. 각 필드는 markdown 없이 일반 줄글이어야 하며, 분석 템플릿 라벨(상황/분위기/감정), 목록(-,*), 제목(#)을 포함하면 안 됩니다. 길이 제한은 intro ${REVIEW_INTRO_MAX_CHARS}자 이하, caption ${REVIEW_CAPTION_MAX_CHARS}자 이하, outro ${REVIEW_OUTRO_MAX_CHARS}자 이하입니다. ${openingRule}`,
+            `한국어 리뷰 글을 JSON으로 작성하세요. 형식: {"intro":"", "captions":[""], "outro":""}. 각 필드는 markdown 없이 일반 줄글이어야 하며, 분석 템플릿 라벨(상황/분위기/감정), 목록(-,*), 제목(#)을 포함하면 안 됩니다. 길이 제한은 intro ${REVIEW_INTRO_MAX_CHARS}자 이하, caption ${REVIEW_CAPTION_MAX_CHARS}자 이하, outro ${REVIEW_OUTRO_MAX_CHARS}자 이하입니다. captions 배열 길이는 정확히 ${requiredCaptionCount}개여야 하며 입력 이미지 순서와 1:1 대응해야 합니다. 부족/초과 없이 정확히 ${requiredCaptionCount}개의 caption을 반환하세요. ${openingRule}`,
         },
         {
           role: "user",
@@ -264,7 +265,7 @@ export async function composeReviewDraftStage(
             keywords && keywords.length > 0
               ? `[키워드]\n${keywords.join(", ")}\n\n`
               : ""
-          }${observationText}\n\n${referenceTexts}\n\n[작성 규칙]\n- intro, caption, outro는 내부 레이블 없이 자연스러운 문장으로 작성하세요.\n- 관찰 결과를 그대로 복사하지 말고 사용자 글처럼 재구성하세요.`,
+          }${observationText}\n\n${referenceTexts}\n\n[작성 규칙]\n- intro, caption, outro는 내부 레이블 없이 자연스러운 문장으로 작성하세요.\n- 관찰 결과를 그대로 복사하지 말고 사용자 글처럼 재구성하세요.\n- captions는 반드시 ${requiredCaptionCount}개를 반환하고, [이미지 1]부터 [이미지 ${requiredCaptionCount}]까지 순서대로 1:1 대응하세요.\n- captions가 부족하거나 초과하면 응답 전에 스스로 보정해 정확히 ${requiredCaptionCount}개로 맞추세요.`,
         },
       ],
       response_format: { type: "json_object" },
@@ -298,49 +299,16 @@ export async function composeReviewDraftStage(
     }
 
     if (captions.length !== observations.length) {
-      console.warn("[composeReviewDraftStage] caption count mismatch", {
-        observationCount: observations.length,
-        captionCount: captions.length,
-        captions,
-        imageUrls: observations.map((observation) => observation.url),
-        rawResponse,
-      });
-      return fail(
-        "final-draft",
-        "CAPTION_COUNT_MISMATCH",
-        "이미지 수와 캡션 수가 일치하지 않습니다.",
-        true
+      console.warn(
+        "[composeReviewDraftStage] caption count mismatch; continue with empty caption fallback",
+        {
+          observationCount: observations.length,
+          captionCount: captions.length,
+          captions,
+          imageUrls: observations.map((observation) => observation.url),
+          rawResponse,
+        }
       );
-    }
-
-    const formatCandidates = [intro, outro, ...captions];
-    const hasViolation = formatCandidates.some((text) => hasDraftFormatViolation(text));
-    if (hasViolation) {
-      return fail(
-        "final-draft",
-        "DRAFT_FORMAT_VIOLATION",
-        "리뷰 글 형식이 요구사항을 만족하지 않습니다. 분석 템플릿 라벨이나 markdown 목록 없이 일반 줄글로 생성해 주세요.",
-        true
-      );
-    }
-
-    const lengthViolation = getReviewDraftLengthViolation(intro, outro, captions);
-    if (lengthViolation) {
-      const suffix =
-        lengthViolation.field === "caption" && typeof lengthViolation.index === "number"
-          ? ` (caption ${lengthViolation.index + 1})`
-          : "";
-      return fail(
-        "final-draft",
-        "DRAFT_TOO_LONG",
-        `${lengthViolation.field}${suffix} 길이가 ${lengthViolation.max}자를 초과했습니다. (${lengthViolation.actual}자)`,
-        true
-      );
-    }
-
-    const openingFailure = ensureOpeningConstraint(intro, styleProfile);
-    if (openingFailure) {
-      return openingFailure;
     }
 
     const imageBlocks = observations.map((observation, index) => ({

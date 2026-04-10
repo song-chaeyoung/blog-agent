@@ -2,8 +2,6 @@
 
 ## 공통 응답 규약
 
-모든 생성 API는 성공/실패를 판별 가능한 유니온으로 반환한다.
-
 ```ts
 type StageName =
   | "summary-preparation"
@@ -21,16 +19,17 @@ type GenerationFailure = {
 };
 ```
 
-- 서버는 실패 스테이지에 대해 내부 자동 재시도를 수행하지 않는다.
-- `retryable = true`는 클라이언트가 동일 요청을 다시 시도할 수 있음을 뜻하고, `retryable = false`는 입력/계약 위반 등 비재시도성 실패를 뜻한다.
+규칙:
 
-## 1. Public Convex Contracts
+- 서버 내부 자동 재시도는 수행하지 않는다.
+- `retryable`은 클라이언트 재요청 가능성만 표현한다.
+- 실패 단계 이후 스테이지는 실행하지 않는다.
+
+## 1) Public Convex Contracts
 
 ### `api.generate.createBlogFromImage`
 
-**목적**: 단일 이미지 기반 새 글 생성
-
-**Request**
+Request
 
 ```ts
 {
@@ -38,17 +37,18 @@ type GenerationFailure = {
 }
 ```
 
-**Preconditions**
+Preconditions
 
-- `/generate`에서 이미지 1장만 선택된 경우에만 호출한다.
-- `imageUrl`은 trim 후 비어 있으면 안 된다.
+- 이미지 정확히 1장
+- `imageUrl.trim().length > 0`
 
-**Success Response**
+Success
 
 ```ts
 {
   ok: true;
   stage: "completed";
+  mode: "single";
   postId: Id<"posts">;
   content: string;
   references: Array<{
@@ -59,7 +59,7 @@ type GenerationFailure = {
 }
 ```
 
-**Failure Response**
+Failure
 
 ```ts
 GenerationFailure
@@ -67,31 +67,23 @@ GenerationFailure
 
 ### `api.generate.createBlogReview`
 
-**목적**: 다중 이미지 기반 리뷰 글 생성
-
-**Request**
+Request
 
 ```ts
 {
-  imageUrls: string[];
-  memo?: string;
-  keywords?: string[];
+  imageUrls: string[]; // 2~20
+  memo?: string;       // trim 후 빈 문자열 제거
+  keywords?: string[]; // trim 후 빈 값 제거, 최대 10개
 }
 ```
 
-**Preconditions**
-
-- `/generate`에서 이미지가 2~20장 선택된 경우에만 호출한다.
-- `imageUrls`의 각 항목은 trim 후 비어 있으면 안 된다.
-- `memo`는 trim 후 빈 문자열이면 제거한다.
-- `keywords`는 trim 후 빈 값을 제거하고 최대 10개까지만 허용한다.
-
-**Success Response**
+Success
 
 ```ts
 {
   ok: true;
   stage: "completed";
+  mode: "review";
   postId: Id<"posts">;
   content: string;
   intro: string;
@@ -108,306 +100,157 @@ GenerationFailure
 }
 ```
 
-**Failure Response**
+Failure
 
 ```ts
 GenerationFailure
 ```
 
-### `api.posts.createPost`
+리뷰 추가 계약:
 
-**목적**: 일반 게시글 저장 후 `summary` 생성 예약
+- `intro/outro/imageBlocks`는 항상 존재해야 한다.
+- `imageBlocks.length === imageUrls.length`
+- `captions` 길이가 부족하면 누락 인덱스를 빈 문자열로 채워 `imageBlocks.length === imageUrls.length`를 유지한다.
 
-**Request**
+### `api.posts.createPost` / `api.posts.updatePost`
 
-```ts
-{
-  content: string;
-}
-```
+- 저장/수정 직후 `summaryStatus = "pending"`으로 재설정
+- `internal.posts.generateSummary`를 비동기 예약
+- 기존 실패 요청의 중간 산출물 재사용 금지
 
-**Response**
+## 2) Internal Stage Contracts
 
-```ts
-Id<"posts">
-```
+### `style-profile-preparation`
 
-**후속 보장**
+입력: `userId`
 
-- 저장 직후 `summaryStatus = "pending"`으로 전환
-- 비동기 `generateSummary` 작업 예약
-
-### `api.posts.updatePost`
-
-**목적**: 게시글 수정 후 `summary` 재생성 예약
-
-**Request**
-
-```ts
-{
-  postId: Id<"posts">;
-  content: string;
-  imageBlocks?: Array<{ url: string; caption: string }>;
-  intro?: string;
-  outro?: string;
-}
-```
-
-**Response**
-
-```ts
-void
-```
-
-**후속 보장**
-
-- 수정 즉시 `summaryStatus = "pending"` 재설정
-- 이전 실패 산출물 재사용 금지
-
-## 2. Internal Stage Contracts
-
-### `internal.posts.generateSummary`
-
-**입력**
-
-```ts
-{
-  postId: Id<"posts">;
-  content: string;
-  scheduledBy: "create" | "update" | "backfill";
-}
-```
-
-**성공 결과**
+성공:
 
 ```ts
 {
   ok: true;
-  summary: string;
-  embedding: number[];
-  updatedAt: number;
-}
-```
-
-**실패 결과**
-
-```ts
-{
-  ok: false;
-  code: "SUMMARY_EMPTY" | "SUMMARY_PARSE_FAILED" | "SUMMARY_EMBED_FAILED";
-  message: string;
-}
-```
-
-### `internal.generate.prepareSummaryCandidates`
-
-**입력**
-
-```ts
-{
-  userId: Id<"users">;
-}
-```
-
-**성공 결과**
-
-```ts
-{
-  ok: true;
-  stage: "summary-preparation";
-  data: {
-    availableSummaries: Array<{
-      postId: Id<"posts">;
-      summary: string;
-      embedding: number[];
-    }>;
-  };
-}
-```
-
-**실패 조건**
-
-- 사용자의 준비된 `summary`가 하나도 없음
-
-### `internal.generate.analyzeImages`
-
-**입력**
-
-```ts
-{
-  imageUrls: string[];
-  mode: "single" | "review";
-}
-```
-
-**성공 결과**
-
-```ts
-{
-  ok: true;
-  stage: "image-analysis";
-  data: {
-    observations: Array<{
-      url: string;
-      observation: string;
-      position: number;
-    }>;
-  };
-}
-```
-
-**실패 조건**
-
-- 단일 이미지 관찰 결과가 비어 있음
-- 다중 이미지 중 하나라도 분석 실패
-- JSON/형식 파싱 실패
-
-### `internal.generate.prepareStyleProfile`
-
-**입력**
-
-```ts
-{
-  userId: Id<"users">;
-}
-```
-
-**성공 결과**
-
-```ts
-{
-  ok: true;
-  stage: "style-profile-preparation";
-  data: {
+  styleProfile: {
     openingMode: "off" | "preferred" | "strict";
     fixedOpening?: string;
-    openerPatterns: Array<{
-      text: string;
-      repeatRate: number;
-      occurrences: number;
-      sampleSize: number;
-    }>;
-    toneKeywords?: string[];
+    openerPatterns: Array<{ text: string; repeatRate: number }>;
+    toneKeywords: string[];
     confidence: number;
   };
 }
 ```
 
-**실패/폴백 규칙**
+정책:
 
-- 조회 실패 또는 프로필 없음: 실패 대신 `openingMode = "off"`로 폴백
-- `openingMode = "strict"`인데 `fixedOpening`이 비어 있으면 실패
+- 조회 실패/프로필 없음은 `openingMode = "off"`로 폴백
+- strict에서 기대 시작문 계산 불가 시 실패
 
-### `internal.generate.buildRagContext`
+### `image-analysis`
 
-**입력**
+입력: `{ imageUrls, mode }`
 
-```ts
-{
-  userId: Id<"users">;
-  observations: Array<{
-    url: string;
-    observation: string;
-    position: number;
-  }>;
-}
-```
-
-**성공 결과**
+성공:
 
 ```ts
 {
   ok: true;
-  stage: "rag-context";
-  data: {
-    queryText: string;
-    references: Array<{
-      postId: Id<"posts">;
-      summary: string;
-      score: number;
-    }>;
-    selectionReason: string;
-  };
-}
-```
-
-**실패 조건**
-
-- 참조 가능한 `summary`를 찾지 못함
-- 최종 선택된 참고 요약이 기본 임계값 3개 미만
-- JSON/형식 파싱 실패
-
-### `internal.generate.composeDraft`
-
-**입력**
-
-```ts
-{
-  mode: "single" | "review";
   observations: Array<{
     url: string;
     observation: string;
     position: number;
   }>;
+}
+```
+
+실패 조건:
+
+- 단일 이미지 관찰 결과 비어 있음
+- 다중 이미지 중 하나라도 실패(부분 성공 금지)
+
+### `rag-context`
+
+입력: `{ userId, observations }`
+
+성공:
+
+```ts
+{
+  ok: true;
+  queryText: string;
   references: Array<{
     postId: Id<"posts">;
     summary: string;
     score: number;
   }>;
-  styleProfile: {
-    openingMode: "off" | "preferred" | "strict";
-    fixedOpening?: string;
-    openerPatterns: Array<{
-      text: string;
-      repeatRate: number;
-    }>;
-    toneKeywords?: string[];
-  };
-  memo?: string;
-  keywords?: string[];
+  selectionReason: string;
 }
 ```
 
-**단일 이미지 성공 결과**
+실패 조건:
+
+- 질의 텍스트 생성 실패
+- 참조 가능한 요약 부족(기본 최소 3개)
+- 벡터 검색/조회 오류
+
+### `final-draft` (single/review)
+
+단일 성공:
 
 ```ts
 {
   ok: true;
-  stage: "final-draft";
-  data: {
-    content: string;
-  };
+  content: string;
 }
 ```
 
-**리뷰 글 성공 결과**
+리뷰 성공:
 
 ```ts
 {
   ok: true;
-  stage: "final-draft";
-  data: {
-    content: string;
-    intro: string;
-    outro: string;
-    imageBlocks: Array<{
-      url: string;
-      caption: string;
-    }>;
-  };
+  content: string;
+  intro: string;
+  outro: string;
+  imageBlocks: Array<{ url: string; caption: string }>;
 }
 ```
 
-**실패 조건**
+실패 조건:
 
-- 빈 응답
-- JSON/형식 파싱 실패
-- 요구된 이미지 수와 캡션 수 불일치
-- 분석 템플릿 노출(`상황/분위기/감정` 라벨, markdown 목록/헤더, 내부 레이블) 감지
-- 길이 정책 초과(단일 본문 1200자, 리뷰 `intro/outro` 280자, 이미지별 `caption` 320자)
-- `openingMode = "strict"` 정책 미충족(첫 줄 고정 시작문 불일치)
+- 빈 응답 또는 파싱 실패
+- 단일 글: 형식 위반, 길이 정책 위반, strict 시작문 위반
+- 리뷰 글: `intro/outro/captions`가 모두 비어 있을 때만 `DRAFT_EMPTY` 실패
 
-## 3. 프런트 타입 영향
+길이 계산 규칙:
 
-- [`src/types/post.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/src/types/post.ts)의 `ResultData`는 성공 타입 전용이므로, `GenerationFailure`와 성공 유니온을 받을 수 있게 확장해야 한다.
-- [`src/app/(main)/generate/page.tsx`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/src/app/(main)/generate/page.tsx)는 실패 시 예외 toast 하나만 보여주지 말고 `failedStage`를 해석할 수 있어야 한다.
+- 모든 텍스트는 trim 후 JavaScript `string.length`로 계산
+
+### `internal.posts.generateSummary`
+
+입력:
+
+```ts
+{
+  postId: Id<"posts">;
+  content: string;
+}
+```
+
+후속 동작:
+
+- 성공 시 `summary`, `embedding`, `summaryStatus="ready"` 저장
+- 실패 시 `summaryStatus="failed"`, `summaryError` 저장
+
+## 3) Failure Code Baseline
+
+| Stage | 대표 코드 예시 | Retryable |
+|---|---|---|
+| `summary-preparation` | `INVALID_IMAGE_COUNT`, `INVALID_IMAGE_URL`, `UNAUTHENTICATED` | false |
+| `style-profile-preparation` | `STYLE_PROFILE_STRICT_OPENING_MISSING` | false |
+| `image-analysis` | `IMAGE_ANALYSIS_EMPTY`, `IMAGE_ANALYSIS_PARTIAL_FAILED` | true |
+| `rag-context` | `RAG_NOT_ENOUGH_REFERENCES`, `RAG_BUILD_FAILED` | false/true |
+| `final-draft` | `DRAFT_PARSE_FAILED`, `DRAFT_FORMAT_VIOLATION`, `DRAFT_TOO_LONG`, `DRAFT_EMPTY` | true |
+
+## 4) Frontend Type Impact
+
+- [`src/types/post.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/src/types/post.ts)는 `GenerationFailure` 유니온을 계속 유지해야 한다.
+- [`src/app/(main)/generate/page.tsx`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/src/app/(main)/generate/page.tsx)는 `failedStage`/`retryable`에 따라 reset 또는 업로드 상태 복원을 분기해야 한다.

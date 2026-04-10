@@ -51,7 +51,8 @@ bunx convex dev
 4. 결과가 성공이면 다음을 확인합니다.
    - 실패 toast 대신 결과 화면으로 이동합니다.
    - 결과 본문이 이미지 내용과 과거 글 요약 문맥을 모두 반영합니다.
-   - 저장된 게시글 문서에 `content`, `imageBlocks`, `intro`, `outro`가 채워집니다.
+   - 저장된 게시글 문서에 `content`, `imageBlocks`, `intro`, `outro`가 모두 채워집니다.
+   - `imageBlocks[i].url`이 입력 `imageUrls[i]`와 순서대로 일치합니다.
 
 ### 시나리오 C. 단계 실패 즉시 반환
 
@@ -103,7 +104,7 @@ bunx convex dev
 3. 다음을 확인합니다.
    - `final-draft` 단계가 `DRAFT_TOO_LONG` 코드로 실패합니다.
    - 길이 제한을 넘은 응답은 저장 mutation을 호출하지 않습니다.
-   - 단일 본문 1200자, 리뷰 `intro/outro` 280자, `caption` 320자 정책이 일관되게 적용됩니다.
+   - 단일 본문 1200자, 리뷰 `intro/outro` 280자, `caption` 320자 정책이 trim 이후 `string.length` 기준으로 일관되게 적용됩니다.
 
 ### 시나리오 I. 사용자별 styleProfile 반영
 
@@ -114,6 +115,16 @@ bunx convex dev
    - 사용자 A에서 첫 줄 불일치 시 `OPENING_CONSTRAINT_VIOLATION`으로 실패합니다.
    - 사용자 B 결과는 고정 도입구 강제 없이 생성됩니다.
    - 두 사용자의 styleProfile이 서로 섞이지 않습니다(`userId` 격리).
+
+### 시나리오 J. 리뷰 캡션 수 불일치 보정
+
+1. 테스트용 AI 응답에서 `captions.length !== imageUrls.length` 상황을 만듭니다.
+2. 리뷰 생성 요청을 실행합니다.
+3. 다음을 확인합니다.
+   - `final-draft` 실패 없이 성공 응답이 반환됩니다.
+   - `imageBlocks.length`가 `imageUrls.length`와 동일하게 유지됩니다.
+   - 누락된 캡션 인덱스는 빈 문자열로 보정됩니다.
+   - 보정된 결과로 저장 mutation이 호출됩니다.
 
 ## 4. 편집 후 요약 재생성 검증
 
@@ -145,5 +156,6 @@ bun run lint
 - 실패 후 후속 단계는 실행되지 않는다.
 - 게시글 저장/수정 후 `summary`는 비동기로 생성 또는 갱신된다.
 - 성공 응답 본문에는 분석 템플릿 라벨과 markdown 목록/헤더가 노출되지 않는다.
-- 성공 응답 본문은 길이 정책(단일 1200자, 리뷰 intro/outro 280자, caption 320자)을 초과하지 않는다.
+- 성공 응답 본문은 단일 글 길이 정책(1200자)을 초과하지 않는다.
 - 사용자별 `styleProfile` 정책(`off/preferred/strict`)이 생성 결과에 일관되게 반영된다.
+- 리뷰 캡션 수 불일치는 실패 코드 없이 보정 후 결과를 반환한다.

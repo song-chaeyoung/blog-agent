@@ -9,6 +9,7 @@
  */
 
 import type * as constants from "../constants.js";
+import type * as crons from "../crons.js";
 import type * as generate from "../generate.js";
 import type * as generateAuth from "../generateAuth.js";
 import type * as generateDraft from "../generateDraft.js";
@@ -31,6 +32,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   constants: typeof constants;
+  crons: typeof crons;
   generate: typeof generate;
   generateAuth: typeof generateAuth;
   generateDraft: typeof generateDraft;
