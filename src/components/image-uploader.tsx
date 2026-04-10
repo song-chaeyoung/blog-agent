@@ -38,6 +38,7 @@ export default function ImageUploader({
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const nextClientIdRef = useRef(0);
+  const removedDuringUploadRef = useRef(new Set<string>());
 
   const createClientId = () => {
     nextClientIdRef.current += 1;
@@ -72,6 +73,14 @@ export default function ImageUploader({
         const { storageId } = await res.json();
         const uploaded = await getImageUrl({ storageId });
 
+        if (removedDuringUploadRef.current.has(clientId)) {
+          removedDuringUploadRef.current.delete(clientId);
+          void deleteTempImage({ storageId: uploaded.storageId }).catch(() => {
+            // 삭제 중 오류가 나도 TTL cleanup으로 최종 정리됩니다.
+          });
+          return;
+        }
+
         setImages((prev) => {
           return prev.map((item) => {
             if (item.clientId !== clientId || item.status !== "uploading") {
@@ -86,6 +95,10 @@ export default function ImageUploader({
           });
         });
       } catch {
+        if (removedDuringUploadRef.current.has(clientId)) {
+          removedDuringUploadRef.current.delete(clientId);
+          return;
+        }
         setImages((prev) => {
           return prev.map((item) => {
             if (item.clientId !== clientId || item.status !== "uploading") {
@@ -100,7 +113,7 @@ export default function ImageUploader({
         });
       }
     },
-    [generateUploadUrl, getImageUrl]
+    [deleteTempImage, generateUploadUrl, getImageUrl]
   );
 
   const addFiles = useCallback(
@@ -127,14 +140,10 @@ export default function ImageUploader({
         localPreview: f.preview,
       }));
 
-      setImages((prev) => {
-        const updated = [...prev, ...newItems];
+      setImages((prev) => [...prev, ...newItems]);
 
-        newItems.forEach((item, index) => {
-          uploadFile(validFiles[index].file, item.clientId);
-        });
-
-        return updated;
+      newItems.forEach((item, index) => {
+        void uploadFile(validFiles[index].file, item.clientId);
       });
     },
     [images.length, maxImages, uploadFile]
@@ -167,6 +176,10 @@ export default function ImageUploader({
       if (!item) return;
 
       URL.revokeObjectURL(item.localPreview);
+
+      if (item.status === "uploading") {
+        removedDuringUploadRef.current.add(item.clientId);
+      }
 
       if (item.status === "done") {
         void deleteTempImage({ storageId: item.storageId }).catch(() => {
