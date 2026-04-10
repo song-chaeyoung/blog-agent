@@ -12,9 +12,9 @@ export default function ProfilePage() {
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
         계정 정보와 문체 설정을 한 화면에서 관리합니다.
       </p>
-      {/* <div className="overflow-visible rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="overflow-visible rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
         <UserProfile path="/profile" routing="path" />
-      </div> */}
+      </div>
       <StyleProfileSettings />
     </div>
   );

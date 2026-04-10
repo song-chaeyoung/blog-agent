@@ -12,6 +12,7 @@ const defaultStyleProfile = {
   toneKeywords: [],
   confidence: 0,
 };
+type ReviewDraftStageAi = Parameters<typeof composeReviewDraftStage>[0];
 
 describe("draft format contract", () => {
   it("detects leaked analysis labels and markdown list", () => {
@@ -80,7 +81,7 @@ describe("draft format contract", () => {
           }),
         },
       },
-    } as never;
+    } as unknown as ReviewDraftStageAi;
 
     const result = await composeReviewDraftStage(
       ai,

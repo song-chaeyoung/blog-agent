@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { makeSingleSuccess } from "../helpers/generationTestUtils";
 import { composeReviewDraftStage } from "../../convex/generateDraft";
 
+type ReviewDraftStageAi = Parameters<typeof composeReviewDraftStage>[0];
+
 describe("generation success contract", () => {
   it("single success shape should satisfy public contract", () => {
     const result = makeSingleSuccess();
@@ -31,7 +33,7 @@ describe("generation success contract", () => {
           }),
         },
       },
-    } as never;
+    } as unknown as ReviewDraftStageAi;
 
     const observations = [
       { url: "https://example.com/1.jpg", observation: "관찰1", position: 0 },

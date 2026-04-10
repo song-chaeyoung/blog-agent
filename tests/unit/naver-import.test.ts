@@ -40,6 +40,24 @@ describe("naver import utils", () => {
     );
   });
 
+  it("extracts mainFrame src regardless of attribute order", () => {
+    const html = `
+      <html>
+        <body>
+          <iframe src="/PostView.naver?blogId=test_blog&logNo=1234567890" name="mainFrame"></iframe>
+        </body>
+      </html>
+    `;
+
+    const frameUrl = extractMainFrameUrlFromHtml(
+      html,
+      "https://blog.naver.com/test_blog/1234567890",
+    );
+    expect(frameUrl).toBe(
+      "https://blog.naver.com/PostView.naver?blogId=test_blog&logNo=1234567890",
+    );
+  });
+
   it("extracts readable text from se-main-container", () => {
     const html = `
       <html>

@@ -9,6 +9,16 @@ import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import OpenAI from "openai";
 
+function isStorageDeleteNotFoundError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes("not found") ||
+    message.includes("404") ||
+    message.includes("does not exist")
+  );
+}
+
 /**
  * 글을 저장하고 summary/embedding 생성 action을 스케줄링합니다.
  */
@@ -343,10 +353,20 @@ export const deletePost = mutation({
     const now = Date.now();
 
     for (const storageId of uniqueStorageIds) {
+      let canMarkDeleted = false;
       try {
         await ctx.storage.delete(storageId);
-      } catch {
-        // storage에 객체가 없거나 이미 삭제된 경우여도 DB 정리는 진행합니다.
+        canMarkDeleted = true;
+      } catch (error) {
+        if (isStorageDeleteNotFoundError(error)) {
+          canMarkDeleted = true;
+        } else {
+          console.error("[deletePost] storage delete failed; image upload row kept", {
+            storageId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          continue;
+        }
       }
 
       const upload = await ctx.db
@@ -354,7 +374,7 @@ export const deletePost = mutation({
         .withIndex("by_storage_id", (q) => q.eq("storageId", storageId))
         .unique();
 
-      if (upload) {
+      if (upload && canMarkDeleted) {
         await ctx.db.patch(upload._id, {
           status: "deleted",
           updatedAt: now,

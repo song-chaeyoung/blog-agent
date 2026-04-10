@@ -5,6 +5,8 @@ import {
 } from "../../convex/generateValidation";
 import { composeReviewDraftStage } from "../../convex/generateDraft";
 
+type ReviewDraftStageAi = Parameters<typeof composeReviewDraftStage>[0];
+
 describe("generation failure integration", () => {
   it("single image empty url should fail validation", () => {
     const validated = validateSingleImageRequest(" ");
@@ -44,7 +46,7 @@ describe("generation failure integration", () => {
           }),
         },
       },
-    } as never;
+    } as unknown as ReviewDraftStageAi;
 
     const result = await composeReviewDraftStage(
       ai,

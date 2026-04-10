@@ -15,6 +15,8 @@ function getStatusCode(errorCode: NaverImportError["code"]): number {
     case "INVALID_URL":
     case "UNSUPPORTED_URL":
       return 400;
+    case "FORBIDDEN_URL":
+      return 403;
     case "FETCH_FAILED":
       return 502;
     case "CONTENT_NOT_FOUND":

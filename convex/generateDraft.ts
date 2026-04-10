@@ -285,8 +285,7 @@ export async function composeReviewDraftStage(
     console.info("[composeReviewDraftStage] parsed review response", {
       observationCount: observations.length,
       captionCount: captions.length,
-      captions,
-      rawResponse,
+      hasResponseBody: rawResponse.length > 0,
     });
 
     if (!intro && !outro && captions.length === 0) {
@@ -304,9 +303,6 @@ export async function composeReviewDraftStage(
         {
           observationCount: observations.length,
           captionCount: captions.length,
-          captions,
-          imageUrls: observations.map((observation) => observation.url),
-          rawResponse,
         }
       );
     }
@@ -319,11 +315,39 @@ export async function composeReviewDraftStage(
       .filter((item) => item.length > 0)
       .join("\n\n");
 
+    const formatFailure = ensureDraftFormat(content);
+    if (formatFailure) {
+      return formatFailure;
+    }
+
+    const lengthViolation = getReviewDraftLengthViolation(
+      intro,
+      outro,
+      imageBlocks.map((block) => block.caption)
+    );
+    if (lengthViolation) {
+      const targetField =
+        lengthViolation.field === "caption"
+          ? `caption[${(lengthViolation.index ?? 0) + 1}]`
+          : lengthViolation.field;
+      return fail(
+        "final-draft",
+        "DRAFT_TOO_LONG",
+        `Review draft ${targetField} exceeded ${lengthViolation.max} characters (${lengthViolation.actual}).`,
+        true
+      );
+    }
+
+    const openingFailure = ensureOpeningConstraint(content, styleProfile);
+    if (openingFailure) {
+      return openingFailure;
+    }
+
     return { ok: true, content, intro, outro, imageBlocks };
   } catch (error) {
     console.error("[composeReviewDraftStage] failed to parse/generate review draft", {
       observationCount: observations.length,
-      rawResponse,
+      hasResponseBody: rawResponse.length > 0,
       error: error instanceof Error ? error.message : String(error),
     });
     return fail(

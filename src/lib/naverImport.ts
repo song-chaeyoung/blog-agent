@@ -1,8 +1,12 @@
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+
 export type NaverImportErrorCode =
   | "INVALID_URL"
   | "UNSUPPORTED_URL"
   | "FETCH_FAILED"
-  | "CONTENT_NOT_FOUND";
+  | "CONTENT_NOT_FOUND"
+  | "FORBIDDEN_URL";
 
 export class NaverImportError extends Error {
   constructor(
@@ -32,6 +36,15 @@ const NAVER_BLOG_HOSTS = new Set(["blog.naver.com", "m.blog.naver.com"]);
 const BLOG_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{1,49}$/;
 const LOG_NO_PATTERN = /^\d{5,20}$/;
 const MIN_EXTRACTED_CONTENT_LENGTH = 80;
+const DEFAULT_FETCH_TIMEOUT_MS = 8_000;
+const fetchTimeoutFromEnv = Number.parseInt(
+  process.env.NAVER_IMPORT_FETCH_TIMEOUT_MS ?? "",
+  10,
+);
+const FETCH_TIMEOUT_MS =
+  Number.isFinite(fetchTimeoutFromEnv) && fetchTimeoutFromEnv > 0
+    ? fetchTimeoutFromEnv
+    : DEFAULT_FETCH_TIMEOUT_MS;
 
 const NAVER_FETCH_HEADERS = {
   "user-agent":
@@ -39,10 +52,8 @@ const NAVER_FETCH_HEADERS = {
   "accept-language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
 };
 
-const MAIN_FRAME_REGEXES = [
-  /<iframe[^>]*id=["']mainFrame["'][^>]*src=["']([^"']+)["'][^>]*>/i,
-  /<iframe[^>]*name=["']mainFrame["'][^>]*src=["']([^"']+)["'][^>]*>/i,
-];
+const MAIN_FRAME_REGEX =
+  /<iframe\b(?=[^>]*\b(?:id|name)=["']mainFrame["'])[^>]*\bsrc=["']([^"']+)["'][^>]*>/i;
 
 const CONTENT_CONTAINER_PATTERNS = [
   /<(article|div)\b[^>]*id=["']postViewArea["'][^>]*>/i,
@@ -120,12 +131,22 @@ export async function importNaverBlogPostFromUrl(
   let fallbackTitle: string | null = null;
 
   for (const candidateUrl of candidates) {
-    if (visited.has(candidateUrl)) continue;
-    visited.add(candidateUrl);
+    let safeCandidateUrl: string;
+    try {
+      safeCandidateUrl = await toSafeFetchTarget(candidateUrl);
+    } catch (error) {
+      if (error instanceof NaverImportError) {
+        lastFetchError = error;
+      }
+      continue;
+    }
+
+    if (visited.has(safeCandidateUrl)) continue;
+    visited.add(safeCandidateUrl);
 
     let html: string;
     try {
-      html = await fetchHtml(candidateUrl);
+      html = await fetchHtml(safeCandidateUrl);
     } catch (error) {
       if (error instanceof NaverImportError) {
         lastFetchError = error;
@@ -134,18 +155,29 @@ export async function importNaverBlogPostFromUrl(
     }
 
     const pagesToParse: Array<{ url: string; html: string }> = [
-      { url: candidateUrl, html },
+      { url: safeCandidateUrl, html },
     ];
 
-    const frameUrl = extractMainFrameUrlFromHtml(html, candidateUrl);
-    if (frameUrl && !visited.has(frameUrl)) {
-      visited.add(frameUrl);
+    const frameUrl = extractMainFrameUrlFromHtml(html, safeCandidateUrl);
+    if (frameUrl) {
+      let safeFrameUrl: string | null = null;
       try {
-        const frameHtml = await fetchHtml(frameUrl);
-        pagesToParse.push({ url: frameUrl, html: frameHtml });
+        safeFrameUrl = await toSafeFetchTarget(frameUrl);
       } catch (error) {
         if (error instanceof NaverImportError) {
           lastFetchError = error;
+        }
+      }
+
+      if (safeFrameUrl && !visited.has(safeFrameUrl)) {
+        visited.add(safeFrameUrl);
+        try {
+          const frameHtml = await fetchHtml(safeFrameUrl);
+          pagesToParse.push({ url: safeFrameUrl, html: frameHtml });
+        } catch (error) {
+          if (error instanceof NaverImportError) {
+            lastFetchError = error;
+          }
         }
       }
     }
@@ -183,19 +215,17 @@ export function extractMainFrameUrlFromHtml(
   html: string,
   baseUrl: string,
 ): string | null {
-  for (const regex of MAIN_FRAME_REGEXES) {
-    const match = regex.exec(html);
-    const src = match?.[1];
-    if (!src) continue;
-
-    try {
-      return new URL(src, baseUrl).toString();
-    } catch {
-      continue;
-    }
+  const match = MAIN_FRAME_REGEX.exec(html);
+  const src = match?.[1];
+  if (!src) {
+    return null;
   }
 
-  return null;
+  try {
+    return new URL(src, baseUrl).toString();
+  } catch {
+    return null;
+  }
 }
 
 export function extractNaverBlogTextFromHtml(html: string): string {
@@ -271,20 +301,36 @@ function safeDecode(value: string): string {
 }
 
 async function fetchHtml(url: string): Promise<string> {
+  const safeUrl = await toSafeFetchTarget(url);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(safeUrl, {
       method: "GET",
       headers: NAVER_FETCH_HEADERS,
       redirect: "follow",
       cache: "no-store",
+      signal: controller.signal,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new NaverImportError(
+        "FETCH_FAILED",
+        "네이버 페이지 요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+      );
+    }
     throw new NaverImportError(
       "FETCH_FAILED",
       "네이버 페이지에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
+
+  await toSafeFetchTarget(response.url);
 
   if (!response.ok) {
     throw new NaverImportError(
@@ -294,6 +340,133 @@ async function fetchHtml(url: string): Promise<string> {
   }
 
   return await response.text();
+}
+
+async function toSafeFetchTarget(rawUrl: string): Promise<string> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new NaverImportError("INVALID_URL", "유효하지 않은 URL입니다.");
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (parsed.protocol !== "https:") {
+    throw new NaverImportError(
+      "FORBIDDEN_URL",
+      "보안을 위해 https URL만 허용됩니다.",
+    );
+  }
+  if (!NAVER_BLOG_HOSTS.has(host)) {
+    throw new NaverImportError(
+      "FORBIDDEN_URL",
+      "허용되지 않은 호스트로의 요청은 차단됩니다.",
+    );
+  }
+
+  await assertPublicHostAddress(host);
+  return parsed.toString();
+}
+
+async function assertPublicHostAddress(hostname: string): Promise<void> {
+  const normalizedHost = hostname.trim().toLowerCase();
+  if (!normalizedHost || normalizedHost === "localhost") {
+    throw new NaverImportError(
+      "FORBIDDEN_URL",
+      "로컬 주소로의 요청은 허용되지 않습니다.",
+    );
+  }
+
+  const ipVersion = isIP(normalizedHost);
+  let addresses: string[];
+  if (ipVersion === 0) {
+    try {
+      addresses = (
+        await lookup(normalizedHost, {
+          all: true,
+          verbatim: true,
+        })
+      ).map((entry) => entry.address);
+    } catch {
+      throw new NaverImportError(
+        "FETCH_FAILED",
+        "대상 호스트의 DNS 해석에 실패했습니다.",
+      );
+    }
+  } else {
+    addresses = [normalizedHost];
+  }
+
+  if (addresses.length === 0) {
+    throw new NaverImportError(
+      "FETCH_FAILED",
+      "대상 호스트의 DNS 해석에 실패했습니다.",
+    );
+  }
+
+  for (const address of addresses) {
+    if (isPrivateOrLoopbackAddress(address)) {
+      throw new NaverImportError(
+        "FORBIDDEN_URL",
+        "보안 정책상 비공개/로컬 네트워크 주소로의 요청은 허용되지 않습니다.",
+      );
+    }
+  }
+}
+
+function isPrivateOrLoopbackAddress(address: string): boolean {
+  const normalized = address.trim().toLowerCase().split("%")[0];
+  const ipVersion = isIP(normalized);
+  if (ipVersion === 4) {
+    return isPrivateOrLoopbackIpv4(normalized);
+  }
+  if (ipVersion === 6) {
+    return isPrivateOrLoopbackIpv6(normalized);
+  }
+  return false;
+}
+
+function isPrivateOrLoopbackIpv4(address: string): boolean {
+  const octets = address.split(".").map((octet) => Number.parseInt(octet, 10));
+  if (
+    octets.length !== 4 ||
+    octets.some((value) => Number.isNaN(value) || value < 0 || value > 255)
+  ) {
+    return false;
+  }
+
+  const [a, b] = octets;
+  if (a === 0) return true;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
+}
+
+function isPrivateOrLoopbackIpv6(address: string): boolean {
+  if (address === "::" || address === "::1") {
+    return true;
+  }
+
+  const mappedIpv4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)?.[1];
+  if (mappedIpv4) {
+    return isPrivateOrLoopbackIpv4(mappedIpv4);
+  }
+
+  if (address.startsWith("fc") || address.startsWith("fd")) {
+    return true;
+  }
+  if (
+    address.startsWith("fe8") ||
+    address.startsWith("fe9") ||
+    address.startsWith("fea") ||
+    address.startsWith("feb")
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function extractBalancedElement(
