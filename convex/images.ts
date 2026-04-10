@@ -123,10 +123,11 @@ export const deleteTempImage = mutation({
       // 이미 삭제되었거나 접근 불가한 경우 상태만 정리합니다.
     }
 
+    const now = Date.now();
     await ctx.db.patch(upload._id, {
       status: "deleted",
-      updatedAt: Date.now(),
-      expiresAt: Date.now(),
+      updatedAt: now,
+      expiresAt: now,
       attachedPostId: undefined,
     });
 
@@ -167,6 +168,7 @@ export const markImagesAttached = internalMutation({
         status: "attached",
         createdAt: now,
         updatedAt: now,
+        // expiresAt is required by schema; cleanup queries only target status="temp".
         expiresAt: now + TEMP_UPLOAD_TTL_MS,
         attachedPostId: args.postId,
       });

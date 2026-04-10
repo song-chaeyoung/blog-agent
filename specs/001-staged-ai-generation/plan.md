@@ -1,7 +1,7 @@
 # Implementation Plan: 단계 분리형 AI 블로그 생성 재정의
 
-**Branch**: `001-staged-ai-generation` | **Date**: 2026-04-10 | **Spec**: [spec.md](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/specs/001-staged-ai-generation/spec.md)
-**Input**: Feature specification from `/specs/001-staged-ai-generation/spec.md`
+**Branch**: `001-staged-ai-generation` | **Date**: 2026-04-10 | **Spec**: [spec.md](./spec.md)
+**Input**: Feature specification from `./spec.md`
 
 ## Summary
 
@@ -26,17 +26,17 @@
 ### Pre-Design Gate
 
 - [x] 인증 경계가 명시되었는가?  
-  근거: [`convex/generateAuth.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/convex/generateAuth.ts), [`convex/posts.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/convex/posts.ts)
+  근거: [`convex/generateAuth.ts`](../../convex/generateAuth.ts), [`convex/posts.ts`](../../convex/posts.ts)
 - [x] 사용자 데이터 격리 규칙이 설계에 반영되었는가?  
-  근거: [`convex/generateRag.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/convex/generateRag.ts)의 `filter: q.eq("userId", userId)`, [`convex/schema.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/convex/schema.ts)의 vectorIndex `filterFields`
+  근거: [`convex/generateRag.ts`](../../convex/generateRag.ts)의 `filter: q.eq("userId", userId)`, [`convex/schema.ts`](../../convex/schema.ts)의 vectorIndex `filterFields`
 - [x] 입력/업로드 검증 규칙이 정의되었는가?  
-  근거: [`convex/generateValidation.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/convex/generateValidation.ts), [`convex/constants.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/convex/constants.ts)
+  근거: [`convex/generateValidation.ts`](../../convex/generateValidation.ts), [`convex/constants.ts`](../../convex/constants.ts)
 - [x] AI 출력 계약이 고정되었는가?  
-  근거: [`convex/generateTypes.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/convex/generateTypes.ts), [`convex/generateDraft.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/convex/generateDraft.ts)
+  근거: [`convex/generateTypes.ts`](../../convex/generateTypes.ts), [`convex/generateDraft.ts`](../../convex/generateDraft.ts)
 - [x] 상수/스키마/타입 동기화 대상 파일이 식별되었는가?  
-  근거: [`convex/schema.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/convex/schema.ts), [`convex/constants.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/convex/constants.ts), [`src/constants.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/src/constants.ts), [`src/types/post.ts`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/src/types/post.ts)
+  근거: [`convex/schema.ts`](../../convex/schema.ts), [`convex/constants.ts`](../../convex/constants.ts), [`src/constants.ts`](../../src/constants.ts), [`src/types/post.ts`](../../src/types/post.ts)
 - [x] 검증 계획이 포함되었는가?  
-  근거: [`tests/contract`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/tests/contract), [`tests/integration`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/tests/integration), [`specs/001-staged-ai-generation/quickstart.md`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/specs/001-staged-ai-generation/quickstart.md)
+  근거: [`tests/contract`](../../tests/contract), [`tests/integration`](../../tests/integration), [`specs/001-staged-ai-generation/quickstart.md`](./quickstart.md)
 
 ### Post-Design Re-Check
 
@@ -95,7 +95,7 @@ tests/
 
 ## Phase 0 Output
 
-- 연구 산출물: [`research.md`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/specs/001-staged-ai-generation/research.md)
+- 연구 산출물: [`research.md`](./research.md)
 - 해결된 핵심 쟁점:
   - 요약 기반 RAG 데이터 모델
   - 단계 실패 즉시 반환 계약
@@ -104,9 +104,9 @@ tests/
 
 ## Phase 1 Output
 
-- 데이터 모델: [`data-model.md`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/specs/001-staged-ai-generation/data-model.md)
-- 인터페이스 계약: [`contracts/generation-workflow.md`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/specs/001-staged-ai-generation/contracts/generation-workflow.md)
-- 검증 시나리오: [`quickstart.md`](/C:/Users/adcapsule/Desktop/ts-study/blog-agent/specs/001-staged-ai-generation/quickstart.md)
+- 데이터 모델: [`data-model.md`](./data-model.md)
+- 인터페이스 계약: [`contracts/generation-workflow.md`](./contracts/generation-workflow.md)
+- 검증 시나리오: [`quickstart.md`](./quickstart.md)
 - 에이전트 컨텍스트 갱신: `.specify/scripts/bash/update-agent-context.sh codex` 실행 완료
 
 ## Complexity Tracking

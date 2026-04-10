@@ -52,6 +52,11 @@ specs/
 ## Recent Changes
 
 - `001-staged-ai-generation`: Added staged generation planning with summary-based RAG and explicit stage-failure contracts
+- Naver blog URL import
+- Profile page
+- Writing style matching
+- Image upload cleanup logic
+- Caption-image matching
 
 <!-- MANUAL ADDITIONS START -->
 - 사용자 응답은 존댓말로 작성합니다.
