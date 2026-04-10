@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -21,23 +21,31 @@ type SingleDraft = {
 
 type EditDraft = ReviewDraft | SingleDraft;
 
+function makeDraftFromResult(result: ResultData): EditDraft {
+  return result.mode === "review"
+    ? {
+        kind: "review",
+        blocks: result.imageBlocks,
+        intro: result.intro,
+        outro: result.outro,
+      }
+    : { kind: "single", content: result.content };
+}
+
 export function useResultEditor(result: ResultData) {
   const router = useRouter();
   const updatePost = useMutation(api.posts.updatePost);
 
   const [editMode, setEditMode] = useState(false);
-  const [draft, setDraft] = useState<EditDraft>(
-    result.mode === "review"
-      ? {
-          kind: "review",
-          blocks: result.imageBlocks,
-          intro: result.intro,
-          outro: result.outro,
-        }
-      : { kind: "single", content: result.content }
-  );
+  const [draft, setDraft] = useState<EditDraft>(makeDraftFromResult(result));
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!editMode) {
+      setDraft(makeDraftFromResult(result));
+    }
+  }, [editMode, result]);
 
   const hasChanges =
     result.mode === "review" && draft.kind === "review"
@@ -49,30 +57,12 @@ export function useResultEditor(result: ResultData) {
       : false;
 
   const startEdit = useCallback(() => {
-    setDraft(
-      result.mode === "review"
-        ? {
-            kind: "review",
-            blocks: result.imageBlocks,
-            intro: result.intro,
-            outro: result.outro,
-          }
-        : { kind: "single", content: result.content }
-    );
+    setDraft(makeDraftFromResult(result));
     setEditMode(true);
   }, [result]);
 
   const cancelEdit = useCallback(() => {
-    setDraft(
-      result.mode === "review"
-        ? {
-            kind: "review",
-            blocks: result.imageBlocks,
-            intro: result.intro,
-            outro: result.outro,
-          }
-        : { kind: "single", content: result.content }
-    );
+    setDraft(makeDraftFromResult(result));
     setEditMode(false);
   }, [result]);
 
@@ -162,4 +152,3 @@ export function useResultEditor(result: ResultData) {
     handleCopy,
   };
 }
-

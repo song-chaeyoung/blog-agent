@@ -68,19 +68,16 @@ async function prepareStyleProfileStage(
     .sort((a, b) => b.repeatRate - a.repeatRate)
     .slice(0, 5);
 
-  if (profile.openingMode === "strict" && !fixedOpening) {
-    return fail(
-      "style-profile-preparation",
-      "STYLE_PROFILE_STRICT_OPENING_MISSING",
-      "strict 모드에는 고정 시작문 또는 반복 시작문 패턴이 필요합니다.",
-      false,
-    );
-  }
+  // 손상된 strict 프로필은 생성 전체를 깨지 않도록 off로 폴백합니다.
+  const openingMode =
+    profile.openingMode === "strict" && !fixedOpening
+      ? "off"
+      : profile.openingMode;
 
   return {
     ok: true,
     styleProfile: {
-      openingMode: profile.openingMode,
+      openingMode,
       fixedOpening,
       openerPatterns,
       toneKeywords: profile.toneKeywords ?? [],
@@ -110,7 +107,17 @@ export const createBlogFromImage = action({
       return styleProfileStage;
     }
 
-    const ai = openai();
+    let ai: OpenAI;
+    try {
+      ai = openai();
+    } catch {
+      return fail(
+        "image-analysis",
+        "OPENAI_INIT_FAILED",
+        "OpenAI initialization failed. Please check API configuration.",
+        false,
+      );
+    }
     const imageAnalysis = await analyzeImagesStage(
       ai,
       [validated.imageUrl],
@@ -195,7 +202,17 @@ export const createBlogReview = action({
       return styleProfileStage;
     }
 
-    const ai = openai();
+    let ai: OpenAI;
+    try {
+      ai = openai();
+    } catch {
+      return fail(
+        "image-analysis",
+        "OPENAI_INIT_FAILED",
+        "OpenAI initialization failed. Please check API configuration.",
+        false,
+      );
+    }
     const imageAnalysis = await analyzeImagesStage(
       ai,
       normalized.imageUrls,

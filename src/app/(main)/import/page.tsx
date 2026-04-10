@@ -12,10 +12,23 @@ const DELIMITER = "---";
 type NaverImportPayload = ImportedNaverPost | { error?: string; code?: string };
 
 function parsePosts(raw: string): string[] {
-  return raw
-    .split(DELIMITER)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  const lines = raw.replace(/\r\n/g, "\n").split("\n");
+  const chunks: string[] = [];
+  let current: string[] = [];
+
+  for (const line of lines) {
+    if (line.trim() === DELIMITER) {
+      const post = current.join("\n").trim();
+      if (post.length > 0) chunks.push(post);
+      current = [];
+      continue;
+    }
+    current.push(line);
+  }
+
+  const tail = current.join("\n").trim();
+  if (tail.length > 0) chunks.push(tail);
+  return chunks;
 }
 
 export default function ImportPage() {

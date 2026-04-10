@@ -12,9 +12,15 @@ export type UploadedImage = {
 };
 
 type ImageItem =
-  | { status: "uploading"; localPreview: string }
-  | { status: "done"; localPreview: string; url: string; storageId: Id<"_storage"> }
-  | { status: "error"; localPreview: string; message: string };
+  | { clientId: string; status: "uploading"; localPreview: string }
+  | {
+      clientId: string;
+      status: "done";
+      localPreview: string;
+      url: string;
+      storageId: Id<"_storage">;
+    }
+  | { clientId: string; status: "error"; localPreview: string; message: string };
 
 interface ImageUploaderProps {
   onImagesChange: (images: UploadedImage[], allReady: boolean) => void;
@@ -31,6 +37,12 @@ export default function ImageUploader({
   const [images, setImages] = useState<ImageItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const nextClientIdRef = useRef(0);
+
+  const createClientId = () => {
+    nextClientIdRef.current += 1;
+    return `upload-${nextClientIdRef.current}`;
+  };
 
   // images 변경 시 부모에게 알림 (useEffect로 렌더 사이클 분리)
   useEffect(() => {
@@ -47,7 +59,7 @@ export default function ImageUploader({
   }, [images, onImagesChange]);
 
   const uploadFile = useCallback(
-    async (file: File, index: number) => {
+    async (file: File, clientId: string) => {
       try {
         const uploadUrl = await generateUploadUrl();
         const res = await fetch(uploadUrl, {
@@ -61,28 +73,30 @@ export default function ImageUploader({
         const uploaded = await getImageUrl({ storageId });
 
         setImages((prev) => {
-          const updated = [...prev];
-          if (updated[index] && updated[index].status === "uploading") {
-            updated[index] = {
+          return prev.map((item) => {
+            if (item.clientId !== clientId || item.status !== "uploading") {
+              return item;
+            }
+            return {
+              ...item,
               status: "done",
-              localPreview: updated[index].localPreview,
               url: uploaded.url,
               storageId: uploaded.storageId,
             };
-          }
-          return updated;
+          });
         });
       } catch {
         setImages((prev) => {
-          const updated = [...prev];
-          if (updated[index] && updated[index].status === "uploading") {
-            updated[index] = {
+          return prev.map((item) => {
+            if (item.clientId !== clientId || item.status !== "uploading") {
+              return item;
+            }
+            return {
+              ...item,
               status: "error",
-              localPreview: updated[index].localPreview,
               message: "업로드 실패",
             };
-          }
-          return updated;
+          });
         });
       }
     },
@@ -108,6 +122,7 @@ export default function ImageUploader({
       if (validFiles.length === 0) return;
 
       const newItems: ImageItem[] = validFiles.map((f) => ({
+        clientId: createClientId(),
         status: "uploading" as const,
         localPreview: f.preview,
       }));
@@ -115,8 +130,8 @@ export default function ImageUploader({
       setImages((prev) => {
         const updated = [...prev, ...newItems];
 
-        validFiles.forEach((f, i) => {
-          uploadFile(f.file, prev.length + i);
+        newItems.forEach((item, index) => {
+          uploadFile(validFiles[index].file, item.clientId);
         });
 
         return updated;
@@ -148,19 +163,25 @@ export default function ImageUploader({
 
   const removeImage = useCallback(
     (index: number) => {
-      const removedItem = images[index];
+      let removedItem: Extract<ImageItem, { status: "done" }> | null = null;
       setImages((prev) => {
-        if (removedItem) URL.revokeObjectURL(removedItem.localPreview);
+        const item = prev[index];
+        if (item) {
+          URL.revokeObjectURL(item.localPreview);
+          if (item.status === "done") {
+            removedItem = item;
+          }
+        }
         return prev.filter((_, i) => i !== index);
       });
 
-      if (removedItem?.status === "done") {
+      if (removedItem) {
         void deleteTempImage({ storageId: removedItem.storageId }).catch(() => {
           // 업로더에서 이미 제거된 상태이므로 UI는 유지하고 서버 정리는 TTL에 맡깁니다.
         });
       }
     },
-    [images, deleteTempImage]
+    [deleteTempImage]
   );
 
   const moveImage = useCallback(
@@ -186,7 +207,7 @@ export default function ImageUploader({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {images.map((img, i) => (
             <div
-              key={img.localPreview}
+              key={img.clientId}
               className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800"
             >
               <img

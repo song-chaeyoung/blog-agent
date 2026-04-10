@@ -8,6 +8,20 @@ import {
 import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import OpenAI from "openai";
+import type { Id } from "./_generated/dataModel";
+
+type SummarySchedulerCtx = Pick<MutationCtx, "scheduler">;
+
+export async function scheduleSummaryRegeneration(
+  ctx: SummarySchedulerCtx,
+  postId: Id<"posts">,
+  content: string,
+) {
+  await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
+    postId,
+    content,
+  });
+}
 
 function isStorageDeleteNotFoundError(error: unknown): boolean {
   const message =
@@ -44,10 +58,7 @@ export const createPost = mutation({
     });
 
     // summary + embedding 생성 action을 스케줄링
-    await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
-      postId,
-      content: args.content,
-    });
+    await scheduleSummaryRegeneration(ctx, postId, args.content);
 
     return postId;
   },
@@ -79,10 +90,7 @@ export const bulkCreatePosts = mutation({
         summaryStatus: "pending",
       });
 
-      await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
-        postId,
-        content,
-      });
+      await scheduleSummaryRegeneration(ctx, postId, content);
 
       postIds.push(postId);
     }
@@ -225,10 +233,7 @@ async function retryMissingSummaryJobs(ctx: MutationCtx) {
     .collect();
 
   for (const post of posts) {
-    await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
-      postId: post._id,
-      content: post.content,
-    });
+    await scheduleSummaryRegeneration(ctx, post._id, post.content);
   }
 
   return posts.length;
@@ -290,10 +295,7 @@ export const updatePost = mutation({
     });
 
     // summary/embedding 재생성 스케줄링
-    await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
-      postId: args.postId,
-      content: args.content,
-    });
+    await scheduleSummaryRegeneration(ctx, args.postId, args.content);
   },
 });
 

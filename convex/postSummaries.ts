@@ -56,7 +56,13 @@ export const backfillMissingSummaries = mutation({
           q.or(
             q.eq(q.field("summaryStatus"), undefined),
             q.eq(q.field("summaryStatus"), "failed"),
-            q.eq(q.field("summary"), undefined),
+            q.and(
+              q.neq(q.field("summaryStatus"), "pending"),
+              q.or(
+                q.eq(q.field("summary"), undefined),
+                q.eq(q.field("embedding"), undefined),
+              ),
+            ),
           ),
         ),
       )
