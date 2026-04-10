@@ -9,10 +9,11 @@ export const getUserId = internalQuery({
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) =>
-        q.eq("tokenIdentifier", args.tokenIdentifier)
+        q.eq("tokenIdentifier", args.tokenIdentifier),
       )
       .unique();
-    return user?._id ?? null;
+    if (!user) throw new Error("사용자를 찾을 수 없습니다.");
+    return user._id;
   },
 });
 
@@ -111,7 +112,7 @@ export const saveGeneratedReviewPost = internalMutation({
       v.object({
         url: v.string(),
         caption: v.string(),
-      })
+      }),
     ),
     imageStorageIds: v.optional(v.array(v.id("_storage"))),
     intro: v.string(),

@@ -25,7 +25,7 @@ const openai = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 async function prepareStyleProfileStage(
   ctx: ActionCtx,
-  userId: Id<"users">
+  userId: Id<"users">,
 ): Promise<
   { ok: true; styleProfile: GenerationStyleProfile } | GenerationFailure
 > {
@@ -73,7 +73,7 @@ async function prepareStyleProfileStage(
       "style-profile-preparation",
       "STYLE_PROFILE_STRICT_OPENING_MISSING",
       "strict 모드에는 고정 시작문 또는 반복 시작문 패턴이 필요합니다.",
-      false
+      false,
     );
   }
 
@@ -111,7 +111,11 @@ export const createBlogFromImage = action({
     }
 
     const ai = openai();
-    const imageAnalysis = await analyzeImagesStage(ai, [validated.imageUrl], "single");
+    const imageAnalysis = await analyzeImagesStage(
+      ai,
+      [validated.imageUrl],
+      "single",
+    );
     if (!imageAnalysis.ok) {
       return imageAnalysis;
     }
@@ -120,7 +124,7 @@ export const createBlogFromImage = action({
       ctx,
       ai,
       auth.userId,
-      imageAnalysis.observations
+      imageAnalysis.observations,
     );
     if (!rag.ok) {
       return rag;
@@ -130,7 +134,7 @@ export const createBlogFromImage = action({
       ai,
       imageAnalysis.observations[0],
       rag.references,
-      styleProfileStage.styleProfile
+      styleProfileStage.styleProfile,
     );
     if (!draft.ok) {
       return draft;
@@ -138,19 +142,22 @@ export const createBlogFromImage = action({
 
     let postId: Id<"posts">;
     try {
-      postId = await ctx.runMutation(internal.generateHelpers.saveGeneratedPost, {
-        userId: auth.userId,
-        content: draft.content,
-        imageUrl: validated.imageUrl,
-        imageStorageId: args.imageStorageId,
-        references: rag.references ?? [],
-      });
+      postId = await ctx.runMutation(
+        internal.generateHelpers.saveGeneratedPost,
+        {
+          userId: auth.userId,
+          content: draft.content,
+          imageUrl: validated.imageUrl,
+          imageStorageId: args.imageStorageId,
+          references: rag.references ?? [],
+        },
+      );
     } catch {
       return fail(
         "final-draft",
         "POST_SAVE_FAILED",
         "Saving the generated post failed. Please retry.",
-        true
+        true,
       );
     }
 
@@ -189,7 +196,11 @@ export const createBlogReview = action({
     }
 
     const ai = openai();
-    const imageAnalysis = await analyzeImagesStage(ai, normalized.imageUrls, "review");
+    const imageAnalysis = await analyzeImagesStage(
+      ai,
+      normalized.imageUrls,
+      "review",
+    );
     if (!imageAnalysis.ok) {
       return imageAnalysis;
     }
@@ -198,7 +209,7 @@ export const createBlogReview = action({
       ctx,
       ai,
       auth.userId,
-      imageAnalysis.observations
+      imageAnalysis.observations,
     );
     if (!rag.ok) {
       return rag;
@@ -210,7 +221,7 @@ export const createBlogReview = action({
       rag.references,
       styleProfileStage.styleProfile,
       normalized.memo,
-      normalized.keywords
+      normalized.keywords,
     );
     if (!draft.ok) {
       return draft;
@@ -228,14 +239,14 @@ export const createBlogReview = action({
           intro: draft.intro,
           outro: draft.outro,
           references: rag.references ?? [],
-        }
+        },
       );
     } catch {
       return fail(
         "final-draft",
         "POST_SAVE_FAILED",
         "Saving the generated post failed. Please retry.",
-        true
+        true,
       );
     }
 
@@ -250,5 +261,59 @@ export const createBlogReview = action({
       imageBlocks: draft.imageBlocks,
       references: rag.references ?? [],
     };
+  },
+});
+
+/**
+ * 사용자의 최근 글을 분석하여 문체 프로필을 갱신합니다.
+ */
+export const analyzeUserStyle = action({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args): Promise<string> => {
+    const ai = openai();
+
+    // 1. 최근 글 조회 (최대 5개)
+    const recentPosts = await ctx.runQuery(
+      internal.generateHelpers.getRecentPosts,
+      {
+        userId: args.userId,
+        limit: 5,
+      },
+    );
+
+    if (recentPosts.length === 0) {
+      return "분석할 글이 없습니다.";
+    }
+
+    const combinedContent = recentPosts
+      .map((p, i) => `[글 ${i + 1}]\n${p.content}`)
+      .join("\n\n");
+
+    // 2. 문체 분석 요청 (GPT-4o-mini 등 활용)
+    const response = await ai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `사용자의 글들을 분석하여 '문체 가이드라인'을 작성하는 AI입니다. 
+주제(내용)는 무시하고 **어투, 종결어미 패턴, 이모지 사용 습관, 서두/결론 습관, 문장 길이 및 호흡** 등 '형식과 스타일'만 150자 내외로 명확히 추출하세요.`,
+        },
+        {
+          role: "user",
+          content: `[분석할 글 목록]\n${combinedContent}\n\n위 글들을 바탕으로 이 사용자의 문체 가이드라인을 한 문단으로 명확히 요약해 주세요.`,
+        },
+      ],
+      max_tokens: 300,
+    });
+
+    const styleProfile = response.choices[0].message.content ?? "";
+
+    // 3. DB 저장
+    await ctx.runMutation(internal.generateHelpers.updateStyleProfile, {
+      userId: args.userId,
+      styleProfile,
+    });
+
+    return styleProfile;
   },
 });
