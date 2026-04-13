@@ -72,10 +72,12 @@ export const saveGeneratedPost = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
+    const summaryToken = Date.now();
     const postId = await ctx.db.insert("posts", {
       userId: args.userId,
       content: args.content,
       summaryStatus: "pending",
+      summaryUpdatedAt: summaryToken,
       imageUrl: args.imageUrl,
       imageStorageId: args.imageStorageId,
       references: args.references,
@@ -96,6 +98,7 @@ export const saveGeneratedPost = internalMutation({
     await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
       postId,
       content: args.content,
+      expectedSummaryUpdatedAt: summaryToken,
     });
 
     return postId;
@@ -128,10 +131,12 @@ export const saveGeneratedReviewPost = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
+    const summaryToken = Date.now();
     const postId = await ctx.db.insert("posts", {
       userId: args.userId,
       content: args.content,
       summaryStatus: "pending",
+      summaryUpdatedAt: summaryToken,
       imageBlocks: args.imageBlocks,
       imageStorageIds: args.imageStorageIds,
       intro: args.intro,
@@ -154,6 +159,7 @@ export const saveGeneratedReviewPost = internalMutation({
     await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
       postId,
       content: args.content,
+      expectedSummaryUpdatedAt: summaryToken,
     });
 
     return postId;

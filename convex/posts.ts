@@ -17,10 +17,12 @@ export async function scheduleSummaryRegeneration(
   ctx: SummarySchedulerCtx,
   postId: Id<"posts">,
   content: string,
+  expectedSummaryUpdatedAt: number,
 ) {
   await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
     postId,
     content,
+    expectedSummaryUpdatedAt,
   });
 }
 
@@ -61,7 +63,7 @@ export const createPost = mutation({
     });
 
     // summary + embedding 생성 action을 스케줄링
-    await scheduleSummaryRegeneration(ctx, postId, args.content);
+    await scheduleSummaryRegeneration(ctx, postId, args.content, now);
 
     return postId;
   },
@@ -85,7 +87,7 @@ export const bulkCreatePosts = mutation({
 
     if (!user) throw new Error("사용자를 찾을 수 없습니다.");
 
-    const postIds = [];
+    const postIds: Id<"posts">[] = [];
     for (const content of args.contents) {
       const now = Date.now();
       const postId = await ctx.db.insert("posts", {
@@ -95,7 +97,7 @@ export const bulkCreatePosts = mutation({
         summaryUpdatedAt: now,
       });
 
-      await scheduleSummaryRegeneration(ctx, postId, content);
+      await scheduleSummaryRegeneration(ctx, postId, content, now);
 
       postIds.push(postId);
     }
@@ -111,12 +113,14 @@ export const generateSummary = internalAction({
   args: {
     postId: v.id("posts"),
     content: v.string(),
+    expectedSummaryUpdatedAt: v.number(),
   },
   handler: async (ctx, args) => {
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
     try {
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
+
       const summaryRes = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
@@ -146,6 +150,7 @@ export const generateSummary = internalAction({
         postId: args.postId,
         summary,
         embedding,
+        expectedSummaryUpdatedAt: args.expectedSummaryUpdatedAt,
       });
     } catch (error) {
       const errorMessage =
@@ -156,6 +161,7 @@ export const generateSummary = internalAction({
         await ctx.runMutation(internal.posts.updatePostSummaryFailed, {
           postId: args.postId,
           error: errorMessage,
+          expectedSummaryUpdatedAt: args.expectedSummaryUpdatedAt,
         });
       } catch {
         // Failed-state patch can also fail in transient outages; avoid rethrowing.
@@ -172,8 +178,13 @@ export const updatePostSummaryReady = internalMutation({
     postId: v.id("posts"),
     summary: v.string(),
     embedding: v.array(v.float64()),
+    expectedSummaryUpdatedAt: v.number(),
   },
   handler: async (ctx, args) => {
+    const post = await ctx.db.get(args.postId);
+    if (!post) return;
+    if (post.summaryUpdatedAt !== args.expectedSummaryUpdatedAt) return;
+
     await ctx.db.patch(args.postId, {
       summary: args.summary,
       embedding: args.embedding,
@@ -191,8 +202,13 @@ export const updatePostSummaryFailed = internalMutation({
   args: {
     postId: v.id("posts"),
     error: v.string(),
+    expectedSummaryUpdatedAt: v.number(),
   },
   handler: async (ctx, args) => {
+    const post = await ctx.db.get(args.postId);
+    if (!post) return;
+    if (post.summaryUpdatedAt !== args.expectedSummaryUpdatedAt) return;
+
     await ctx.db.patch(args.postId, {
       summaryStatus: "failed",
       summaryError: args.error,
@@ -259,13 +275,14 @@ async function retryMissingSummaryJobs(ctx: MutationCtx) {
   });
 
   for (const post of retryablePosts) {
+    const retryToken = Date.now();
     await ctx.db.patch(post._id, {
       summaryStatus: "pending",
       summaryError: undefined,
-      summaryUpdatedAt: now,
+      summaryUpdatedAt: retryToken,
     });
 
-    await scheduleSummaryRegeneration(ctx, post._id, post.content);
+    await scheduleSummaryRegeneration(ctx, post._id, post.content, retryToken);
   }
 
   return retryablePosts.length;
@@ -315,12 +332,13 @@ export const updatePost = mutation({
       throw new Error("수정 권한이 없습니다.");
     }
 
+    const summaryToken = Date.now();
     await ctx.db.patch(args.postId, {
       content: args.content,
       summary: undefined,
       summaryStatus: "pending",
       summaryError: undefined,
-      summaryUpdatedAt: Date.now(),
+      summaryUpdatedAt: summaryToken,
       embedding: undefined,
       ...(args.imageBlocks !== undefined && { imageBlocks: args.imageBlocks }),
       ...(args.intro !== undefined && { intro: args.intro }),
@@ -328,7 +346,12 @@ export const updatePost = mutation({
     });
 
     // summary/embedding 재생성 스케줄링
-    await scheduleSummaryRegeneration(ctx, args.postId, args.content);
+    await scheduleSummaryRegeneration(
+      ctx,
+      args.postId,
+      args.content,
+      summaryToken,
+    );
   },
 });
 

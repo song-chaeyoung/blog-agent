@@ -114,7 +114,7 @@ export const createBlogFromImage = action({
       return fail(
         "image-analysis",
         "OPENAI_INIT_FAILED",
-        "OpenAI initialization failed. Please check API configuration.",
+        "OpenAI 초기화에 실패했습니다. API 설정을 확인해 주세요.",
         false,
       );
     }
@@ -163,7 +163,7 @@ export const createBlogFromImage = action({
       return fail(
         "final-draft",
         "POST_SAVE_FAILED",
-        "Saving the generated post failed. Please retry.",
+        "생성된 글 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.",
         true,
       );
     }
@@ -209,7 +209,7 @@ export const createBlogReview = action({
       return fail(
         "image-analysis",
         "OPENAI_INIT_FAILED",
-        "OpenAI initialization failed. Please check API configuration.",
+        "OpenAI 초기화에 실패했습니다. API 설정을 확인해 주세요.",
         false,
       );
     }
@@ -262,7 +262,7 @@ export const createBlogReview = action({
       return fail(
         "final-draft",
         "POST_SAVE_FAILED",
-        "Saving the generated post failed. Please retry.",
+        "생성된 글 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.",
         true,
       );
     }

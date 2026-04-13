@@ -30,14 +30,17 @@ export const backfillSummary = mutation({
       throw new Error("대상 게시글을 찾을 수 없거나 권한이 없습니다.");
     }
 
+    const summaryToken = Date.now();
     await ctx.db.patch(post._id, {
       summaryStatus: "pending",
       summaryError: undefined,
+      summaryUpdatedAt: summaryToken,
     });
 
     await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
       postId: post._id,
       content: post.content,
+      expectedSummaryUpdatedAt: summaryToken,
     });
   },
 });
@@ -69,13 +72,16 @@ export const backfillMissingSummaries = mutation({
       .collect();
 
     for (const post of posts) {
+      const summaryToken = Date.now();
       await ctx.db.patch(post._id, {
         summaryStatus: "pending",
         summaryError: undefined,
+        summaryUpdatedAt: summaryToken,
       });
       await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
         postId: post._id,
         content: post.content,
+        expectedSummaryUpdatedAt: summaryToken,
       });
     }
 
