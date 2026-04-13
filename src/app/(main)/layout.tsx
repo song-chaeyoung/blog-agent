@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import { Toaster } from "sonner";
+import Image from "next/image";
 
 const tabs = [
   { href: "/posts", label: "글 목록" },
@@ -31,10 +32,20 @@ export default function MainLayout({
             href="/"
             className="text-2xl font-bold text-zinc-900 dark:text-zinc-50"
           >
-            CopyMe
+            {/* CopyMe */}
+            <Image
+              src="/logo.png"
+              alt="Logo"
+              width={60}
+              height={60}
+              unoptimized
+            />
           </Link>
           {isSignedIn ? (
-            <UserButton userProfileMode="navigation" userProfileUrl="/profile" />
+            <UserButton
+              userProfileMode="navigation"
+              userProfileUrl="/profile"
+            />
           ) : (
             <SignInButton mode="modal">
               <button className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
