@@ -31,3 +31,4 @@ export const MAX_KEYWORDS = 10;
 // 업로드 수명
 export const TEMP_UPLOAD_TTL_MS = 1000 * 60 * 60 * 24; // 24시간
 export const TEMP_UPLOAD_CLEANUP_BATCH = 200;
+export const SUMMARY_PENDING_STALE_MS = 1000 * 60 * 30; // 30 minutes

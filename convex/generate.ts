@@ -287,13 +287,21 @@ export const createBlogReview = action({
 export const analyzeUserStyle = action({
   args: { userId: v.id("users") },
   handler: async (ctx, args): Promise<string> => {
+    const auth = await resolveAuthedUserId(ctx);
+    if (!auth.ok) {
+      throw new Error(auth.message);
+    }
+    if (args.userId !== auth.userId) {
+      throw new Error("본인 스타일만 분석할 수 있습니다.");
+    }
+
     const ai = openai();
 
     // 1. 최근 글 조회 (최대 5개)
     const recentPosts = await ctx.runQuery(
       internal.generateHelpers.getRecentPosts,
       {
-        userId: args.userId,
+        userId: auth.userId,
         limit: 5,
       },
     );
@@ -327,7 +335,7 @@ export const analyzeUserStyle = action({
 
     // 3. DB 저장
     await ctx.runMutation(internal.generateHelpers.updateStyleProfile, {
-      userId: args.userId,
+      userId: auth.userId,
       styleProfile,
     });
 

@@ -9,6 +9,7 @@ import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import OpenAI from "openai";
 import type { Id } from "./_generated/dataModel";
+import { SUMMARY_PENDING_STALE_MS } from "./constants";
 
 type SummarySchedulerCtx = Pick<MutationCtx, "scheduler">;
 
@@ -51,10 +52,12 @@ export const createPost = mutation({
 
     if (!user) throw new Error("사용자를 찾을 수 없습니다.");
 
+    const now = Date.now();
     const postId = await ctx.db.insert("posts", {
       userId: user._id,
       content: args.content,
       summaryStatus: "pending",
+      summaryUpdatedAt: now,
     });
 
     // summary + embedding 생성 action을 스케줄링
@@ -84,10 +87,12 @@ export const bulkCreatePosts = mutation({
 
     const postIds = [];
     for (const content of args.contents) {
+      const now = Date.now();
       const postId = await ctx.db.insert("posts", {
         userId: user._id,
         content,
         summaryStatus: "pending",
+        summaryUpdatedAt: now,
       });
 
       await scheduleSummaryRegeneration(ctx, postId, content);
@@ -212,7 +217,10 @@ async function retryMissingSummaryJobs(ctx: MutationCtx) {
 
   if (!user) throw new Error("사용자를 찾을 수 없습니다.");
 
-  const posts = await ctx.db
+  const now = Date.now();
+  const staleCutoff = now - SUMMARY_PENDING_STALE_MS;
+
+  const candidates = await ctx.db
     .query("posts")
     .filter((q) =>
       q.and(
@@ -220,6 +228,7 @@ async function retryMissingSummaryJobs(ctx: MutationCtx) {
         q.or(
           q.eq(q.field("summaryStatus"), undefined),
           q.eq(q.field("summaryStatus"), "failed"),
+          q.eq(q.field("summaryStatus"), "pending"),
           q.and(
             q.neq(q.field("summaryStatus"), "pending"),
             q.or(
@@ -232,11 +241,34 @@ async function retryMissingSummaryJobs(ctx: MutationCtx) {
     )
     .collect();
 
-  for (const post of posts) {
+  const retryablePosts = candidates.filter((post) => {
+    if (post.summaryStatus === "pending") {
+      const lastUpdatedAt = post.summaryUpdatedAt ?? post._creationTime;
+      return lastUpdatedAt <= staleCutoff;
+    }
+
+    if (post.summaryStatus === undefined) {
+      return post.summary === undefined || post.embedding === undefined;
+    }
+
+    if (post.summaryStatus === "failed") {
+      return true;
+    }
+
+    return post.summary === undefined || post.embedding === undefined;
+  });
+
+  for (const post of retryablePosts) {
+    await ctx.db.patch(post._id, {
+      summaryStatus: "pending",
+      summaryError: undefined,
+      summaryUpdatedAt: now,
+    });
+
     await scheduleSummaryRegeneration(ctx, post._id, post.content);
   }
 
-  return posts.length;
+  return retryablePosts.length;
 }
 
 export const retryMissingSummaries = mutation({
@@ -288,6 +320,7 @@ export const updatePost = mutation({
       summary: undefined,
       summaryStatus: "pending",
       summaryError: undefined,
+      summaryUpdatedAt: Date.now(),
       embedding: undefined,
       ...(args.imageBlocks !== undefined && { imageBlocks: args.imageBlocks }),
       ...(args.intro !== undefined && { intro: args.intro }),
@@ -355,30 +388,29 @@ export const deletePost = mutation({
     const now = Date.now();
 
     for (const storageId of uniqueStorageIds) {
-      let canMarkDeleted = false;
-      try {
-        await ctx.storage.delete(storageId);
-        canMarkDeleted = true;
-      } catch (error) {
-        if (isStorageDeleteNotFoundError(error)) {
-          canMarkDeleted = true;
-        } else {
-          console.error("[deletePost] storage delete failed; image upload row kept", {
-            storageId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          continue;
-        }
-      }
-
       const upload = await ctx.db
         .query("imageUploads")
         .withIndex("by_storage_id", (q) => q.eq("storageId", storageId))
         .unique();
 
-      if (upload && canMarkDeleted) {
+      let nextStatus: "deleted" | "temp" = "deleted";
+      try {
+        await ctx.storage.delete(storageId);
+      } catch (error) {
+        if (isStorageDeleteNotFoundError(error)) {
+          nextStatus = "deleted";
+        } else {
+          nextStatus = "temp";
+          console.error("[deletePost] storage delete failed; cleanup deferred", {
+            storageId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      if (upload) {
         await ctx.db.patch(upload._id, {
-          status: "deleted",
+          status: nextStatus,
           updatedAt: now,
           expiresAt: now,
           attachedPostId: undefined,
