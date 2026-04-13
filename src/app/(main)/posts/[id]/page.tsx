@@ -163,7 +163,7 @@ function PostDetail({ post }: { post: Doc<"posts"> }) {
             <span
               className={post.embedding ? "text-green-500" : "text-yellow-500"}
             >
-              {post.embedding ? "embedding 완료" : "embedding 생성 중..."}
+              {post.embedding ? "준비 완료" : "준비 중..."}
             </span>
             {isReviewPost ? (
               <span className="text-blue-500">

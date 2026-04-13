@@ -41,7 +41,7 @@ export default function PostsPage() {
         {totalPosts > 0 && (
           <div className="flex items-center gap-3">
             <span className="text-xs text-zinc-400">
-              embedding {embeddingDone}/{totalPosts}
+              AI 참고 준비 {embeddingDone}/{totalPosts}
             </span>
             {embeddingDone < totalPosts && (
               <button
@@ -116,7 +116,7 @@ export default function PostsPage() {
                       post.embedding ? "text-green-500" : "text-yellow-500"
                     }
                   >
-                    {post.embedding ? "embedding 완료" : "embedding 생성 중..."}
+                    {post.embedding ? "준비 완료" : "준비 중..."}
                   </span>
                   {post.imageBlocks && post.imageBlocks.length > 0 ? (
                     <span className="text-blue-500">
