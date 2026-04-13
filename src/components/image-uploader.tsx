@@ -3,15 +3,27 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { MAX_FILE_SIZE, ACCEPTED_TYPES, MAX_IMAGES } from "../constants";
 
+export type UploadedImage = {
+  url: string;
+  storageId: Id<"_storage">;
+};
+
 type ImageItem =
-  | { status: "uploading"; localPreview: string }
-  | { status: "done"; localPreview: string; url: string }
-  | { status: "error"; localPreview: string; message: string };
+  | { clientId: string; status: "uploading"; localPreview: string }
+  | {
+      clientId: string;
+      status: "done";
+      localPreview: string;
+      url: string;
+      storageId: Id<"_storage">;
+    }
+  | { clientId: string; status: "error"; localPreview: string; message: string };
 
 interface ImageUploaderProps {
-  onImagesChange: (urls: string[], allReady: boolean) => void;
+  onImagesChange: (images: UploadedImage[], allReady: boolean) => void;
   maxImages?: number;
 }
 
@@ -21,9 +33,17 @@ export default function ImageUploader({
 }: ImageUploaderProps) {
   const generateUploadUrl = useMutation(api.images.generateUploadUrl);
   const getImageUrl = useMutation(api.images.getImageUrl);
+  const deleteTempImage = useMutation(api.images.deleteTempImage);
   const [images, setImages] = useState<ImageItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const nextClientIdRef = useRef(0);
+  const removedDuringUploadRef = useRef(new Set<string>());
+
+  const createClientId = () => {
+    nextClientIdRef.current += 1;
+    return `upload-${nextClientIdRef.current}`;
+  };
 
   // images 변경 시 부모에게 알림 (useEffect로 렌더 사이클 분리)
   useEffect(() => {
@@ -34,13 +54,13 @@ export default function ImageUploader({
     const allReady =
       images.length > 0 && images.every((img) => img.status === "done");
     onImagesChange(
-      doneItems.map((img) => img.url),
+      doneItems.map((img) => ({ url: img.url, storageId: img.storageId })),
       allReady
     );
   }, [images, onImagesChange]);
 
   const uploadFile = useCallback(
-    async (file: File, index: number) => {
+    async (file: File, clientId: string) => {
       try {
         const uploadUrl = await generateUploadUrl();
         const res = await fetch(uploadUrl, {
@@ -51,34 +71,49 @@ export default function ImageUploader({
         if (!res.ok) throw new Error("업로드 실패");
 
         const { storageId } = await res.json();
-        const imageUrl = await getImageUrl({ storageId });
+        const uploaded = await getImageUrl({ storageId });
+
+        if (removedDuringUploadRef.current.has(clientId)) {
+          removedDuringUploadRef.current.delete(clientId);
+          void deleteTempImage({ storageId: uploaded.storageId }).catch(() => {
+            // 삭제 중 오류가 나도 TTL cleanup으로 최종 정리됩니다.
+          });
+          return;
+        }
 
         setImages((prev) => {
-          const updated = [...prev];
-          if (updated[index] && updated[index].status === "uploading") {
-            updated[index] = {
+          return prev.map((item) => {
+            if (item.clientId !== clientId || item.status !== "uploading") {
+              return item;
+            }
+            return {
+              ...item,
               status: "done",
-              localPreview: updated[index].localPreview,
-              url: imageUrl,
+              url: uploaded.url,
+              storageId: uploaded.storageId,
             };
-          }
-          return updated;
+          });
         });
       } catch {
+        if (removedDuringUploadRef.current.has(clientId)) {
+          removedDuringUploadRef.current.delete(clientId);
+          return;
+        }
         setImages((prev) => {
-          const updated = [...prev];
-          if (updated[index] && updated[index].status === "uploading") {
-            updated[index] = {
+          return prev.map((item) => {
+            if (item.clientId !== clientId || item.status !== "uploading") {
+              return item;
+            }
+            return {
+              ...item,
               status: "error",
-              localPreview: updated[index].localPreview,
               message: "업로드 실패",
             };
-          }
-          return updated;
+          });
         });
       }
     },
-    [generateUploadUrl, getImageUrl]
+    [deleteTempImage, generateUploadUrl, getImageUrl]
   );
 
   const addFiles = useCallback(
@@ -100,18 +135,15 @@ export default function ImageUploader({
       if (validFiles.length === 0) return;
 
       const newItems: ImageItem[] = validFiles.map((f) => ({
+        clientId: createClientId(),
         status: "uploading" as const,
         localPreview: f.preview,
       }));
 
-      setImages((prev) => {
-        const updated = [...prev, ...newItems];
+      setImages((prev) => [...prev, ...newItems]);
 
-        validFiles.forEach((f, i) => {
-          uploadFile(f.file, prev.length + i);
-        });
-
-        return updated;
+      newItems.forEach((item, index) => {
+        void uploadFile(validFiles[index].file, item.clientId);
       });
     },
     [images.length, maxImages, uploadFile]
@@ -140,13 +172,24 @@ export default function ImageUploader({
 
   const removeImage = useCallback(
     (index: number) => {
-      setImages((prev) => {
-        const item = prev[index];
-        if (item) URL.revokeObjectURL(item.localPreview);
-        return prev.filter((_, i) => i !== index);
-      });
+      const item = images[index];
+      if (!item) return;
+
+      URL.revokeObjectURL(item.localPreview);
+
+      if (item.status === "uploading") {
+        removedDuringUploadRef.current.add(item.clientId);
+      }
+
+      if (item.status === "done") {
+        void deleteTempImage({ storageId: item.storageId }).catch(() => {
+          // 업로더에서 이미 제거된 상태이므로 UI는 유지하고 서버 정리는 TTL에 맡깁니다.
+        });
+      }
+
+      setImages((prev) => prev.filter((_, i) => i !== index));
     },
-    []
+    [deleteTempImage, images]
   );
 
   const moveImage = useCallback(
@@ -172,7 +215,7 @@ export default function ImageUploader({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {images.map((img, i) => (
             <div
-              key={img.localPreview}
+              key={img.clientId}
               className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800"
             >
               <img

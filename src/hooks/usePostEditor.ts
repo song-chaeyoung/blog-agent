@@ -110,7 +110,7 @@ export function usePostEditor(post: Doc<"posts">) {
         await updatePost({ postId: post._id, content: draft.content });
       }
       setDraft(null);
-      toast.success("저장되었습니다.");
+      toast.success("저장되었습니다. 요약 재생성을 예약했습니다.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "저장 중 오류가 발생했습니다.");
     } finally {

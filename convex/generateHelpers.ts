@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 /** 토큰으로 userId 조회 */
 export const getUserId = internalQuery({
@@ -16,31 +17,6 @@ export const getUserId = internalQuery({
   },
 });
 
-/** 사용자 프로필 조회 (문체 포함) */
-export const getUserProfile = internalQuery({
-  args: { tokenIdentifier: v.string() },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("users")
-      .withIndex("by_token", (q) =>
-        q.eq("tokenIdentifier", args.tokenIdentifier),
-      )
-      .unique();
-  },
-});
-
-// 최근글 조회
-export const getRecentPosts = internalQuery({
-  args: { userId: v.id("users"), limit: v.number() },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("posts")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-      .order("desc")
-      .take(args.limit);
-  },
-});
-
 /** postId 배열로 글 내용 조회 */
 export const getPostsByIds = internalQuery({
   args: { ids: v.array(v.id("posts")) },
@@ -54,23 +30,78 @@ export const getPostsByIds = internalQuery({
   },
 });
 
+/** summary 준비 상태인 후보 조회 */
+export const getSummaryCandidates = internalQuery({
+  args: { userId: v.id("users"), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const posts = await ctx.db
+      .query("posts")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("userId"), args.userId),
+          q.eq(q.field("summaryStatus"), "ready"),
+        ),
+      )
+      .take(args.limit ?? 50);
+
+    return posts
+      .filter((post) => post.summary && post.embedding)
+      .map((post) => ({
+        postId: post._id,
+        summary: post.summary!,
+        embedding: post.embedding!,
+      }));
+  },
+});
+
 /** 생성된 글 저장 */
 export const saveGeneratedPost = internalMutation({
   args: {
     userId: v.id("users"),
     content: v.string(),
     imageUrl: v.string(),
-    embedding: v.array(v.float64()),
-    summary: v.optional(v.string()), // 추가
+    imageStorageId: v.optional(v.id("_storage")),
+    references: v.optional(
+      v.array(
+        v.object({
+          postId: v.id("posts"),
+          summary: v.string(),
+          score: v.number(),
+        }),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("posts", {
+    const summaryToken = Date.now();
+    const postId = await ctx.db.insert("posts", {
       userId: args.userId,
       content: args.content,
+      summaryStatus: "pending",
+      summaryUpdatedAt: summaryToken,
       imageUrl: args.imageUrl,
-      embedding: args.embedding,
-      summary: args.summary, // 추가
+      imageStorageId: args.imageStorageId,
+      references: args.references,
     });
+
+    if (args.imageStorageId) {
+      try {
+        await ctx.runMutation(internal.images.markImagesAttached, {
+          userId: args.userId,
+          postId,
+          storageIds: [args.imageStorageId],
+        });
+      } catch {
+        // 본문 저장은 유지하고, temp 정리는 TTL/삭제 경로에서 보완합니다.
+      }
+    }
+
+    await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
+      postId,
+      content: args.content,
+      expectedSummaryUpdatedAt: summaryToken,
+    });
+
+    return postId;
   },
 });
 
@@ -79,36 +110,78 @@ export const saveGeneratedReviewPost = internalMutation({
   args: {
     userId: v.id("users"),
     content: v.string(),
+    summary: v.optional(v.string()),
     imageBlocks: v.array(
       v.object({
         url: v.string(),
         caption: v.string(),
       }),
     ),
+    imageStorageIds: v.optional(v.array(v.id("_storage"))),
     intro: v.string(),
     outro: v.string(),
-    embedding: v.array(v.float64()),
-    summary: v.optional(v.string()), // 추가
+    references: v.optional(
+      v.array(
+        v.object({
+          postId: v.id("posts"),
+          summary: v.string(),
+          score: v.number(),
+        }),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("posts", {
+    const summaryToken = Date.now();
+    const postId = await ctx.db.insert("posts", {
       userId: args.userId,
       content: args.content,
+      summaryStatus: "pending",
+      summaryUpdatedAt: summaryToken,
       imageBlocks: args.imageBlocks,
+      imageStorageIds: args.imageStorageIds,
       intro: args.intro,
       outro: args.outro,
-      embedding: args.embedding,
-      summary: args.summary, // 추가
+      references: args.references,
     });
+
+    if (args.imageStorageIds && args.imageStorageIds.length > 0) {
+      try {
+        await ctx.runMutation(internal.images.markImagesAttached, {
+          userId: args.userId,
+          postId,
+          storageIds: args.imageStorageIds,
+        });
+      } catch {
+        // 본문 저장은 유지하고, temp 정리는 TTL/삭제 경로에서 보완합니다.
+      }
+    }
+
+    await ctx.scheduler.runAfter(0, internal.posts.generateSummary, {
+      postId,
+      content: args.content,
+      expectedSummaryUpdatedAt: summaryToken,
+    });
+
+    return postId;
+  },
+});
+
+/** 최근 작성된 글 목록 조회 */
+export const getRecentPosts = internalQuery({
+  args: { userId: v.id("users"), limit: v.number() },
+  handler: async (ctx, args) => {
+    const posts = await ctx.db
+      .query("posts")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .take(args.limit);
+    return posts;
   },
 });
 
 /** 사용자 문체 프로필 갱신 */
 export const updateStyleProfile = internalMutation({
-  args: {
-    userId: v.id("users"),
-    styleProfile: v.string(),
-  },
+  args: { userId: v.id("users"), styleProfile: v.string() },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.userId, {
       styleProfile: args.styleProfile,
